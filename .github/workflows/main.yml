@@ -1,0 +1,40 @@
+name: Stock News Bot Auto Run
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # 30분마다 자동 실행
+  workflow_dispatch:      # 수동 실행 버튼 (테스트용)
+
+jobs:
+  run-stock-bot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # 봇이 기억장치(파일)를 쓸 수 있게 허락함
+
+    steps:
+      - name: 코드 가져오기
+        uses: actions/checkout@v3
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: 라이브러리 설치
+        run: pip install feedparser tweepy google-generativeai
+
+      - name: 봇 실행
+        env: # 아까 등록한 비밀키들을 불러옵니다
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CONSUMER_KEY: ${{ secrets.CONSUMER_KEY }}
+          CONSUMER_SECRET: ${{ secrets.CONSUMER_SECRET }}
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          ACCESS_TOKEN_SECRET: ${{ secrets.ACCESS_TOKEN_SECRET }}
+        run: python bot.py
+
+      - name: 기억장치 저장 (Commit & Push)
+        run: |
+          git config --global user.name "StockNewsBot"
+          git config --global user.email "bot@noreply.github.com"
+          git add last_link_us.txt last_link_kr.txt 2>/dev/null || true
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 뉴스 처리 완료 (기억 저장)" && git push)
