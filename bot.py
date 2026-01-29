@@ -22,7 +22,7 @@ except KeyError:
 # 2. 설정 값 (뉴스 소스 3개 + 한국 1개)
 # ==========================================
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-pro') 
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # 요청하신 3가지 미국 뉴스 링크
 RSS_US_INVESTING = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069" # 투자
@@ -142,3 +142,4 @@ if __name__ == "__main__":
     
     # 한국 뉴스
     process_news("한국주식(한경)", RSS_KR, "last_link_kr.txt")
+
