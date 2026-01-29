@@ -45,7 +45,7 @@ except Exception as e:
     print(f"⚠️ 트위터 클라이언트 연결 실패: {e}")
 
 # ==========================================
-# 3. 뉴스 소스 리스트
+# 3. 뉴스 소스 리스트 (최종)
 # ==========================================
 RSS_SOURCES = [
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
@@ -59,8 +59,6 @@ RSS_SOURCES = [
     ("미국주식(WSJ_Market)", "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", "last_link_wsj_mkt.txt", "WSJ"),
     ("미국주식(WSJ_Economy)", "https://feeds.content.dowjones.io/public/rss/socialeconomyfeed", "last_link_wsj_eco.txt", "WSJ"),
     ("속보(텔레그램)", "https://rsshub.app/telegram/channel/bornlupin", "last_link_bornlupin.txt", "Telegram"),
-    
-    # ★ [변경] 요청하신 연합뉴스(yna.co.kr) 경제면 추가 (연예뉴스 제거됨)
     ("한국주식(연합)", "https://www.yna.co.kr/rss/economy.xml", "last_link_yna.txt", "연합뉴스")
 ]
 
@@ -68,14 +66,11 @@ MAX_HISTORY = 1000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
 # ==========================================
-# 4. 시간 제어 함수 (6시간 이내 기사만)
+# 4. 시간 제어 함수 (6시간 이내 체크)
 # ==========================================
-# ※ 운영 시간 제한(06~21시) 함수는 요청에 따라 삭제되었습니다.
-
 def is_recent_news(entry):
     if not hasattr(entry, 'published_parsed') or not entry.published_parsed:
         return True
-        
     try:
         published_time = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
         current_time = datetime.now(timezone.utc)
@@ -234,7 +229,7 @@ def summarize_news(target_model, title, link, content_text=""):
     return None, None, None
 
 # ==========================================
-# 6. 기록 관리 (최대 1000개 유지 & 중복 검사)
+# 6. 기록 관리
 # ==========================================
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
@@ -259,7 +254,6 @@ def save_global_title(title):
         if len(titles) > MAX_HISTORY: titles = titles[-MAX_HISTORY:]
         with open(GLOBAL_TITLE_FILE, 'w', encoding='utf-8') as f: f.write("\n".join(titles))
 
-# ★ 출처가 달라도 내용이 비슷하면 중복 처리
 def is_similar_title(new_title, existing_titles):
     clean_new = re.sub(r'\s+', ' ', new_title).strip()
     for old_title in existing_titles:
@@ -278,15 +272,13 @@ if __name__ == "__main__":
     for category, rss_url, filename, default_source_name in RSS_SOURCES:
         print(f"\n--- [{category}] ---")
         
-        # 운영 시간 체크 함수 삭제됨 (24시간 가동)
-
         try:
             feed = feedparser.parse(rss_url)
             if not feed.entries: print("뉴스 없음"); continue
             news = feed.entries[0]
         except: print("RSS 파싱 실패"); continue
         
-        # 시간 제한 체크 (6시간)
+        # 6시간 이내 체크
         if not is_recent_news(news):
             continue
 
@@ -295,7 +287,7 @@ if __name__ == "__main__":
 
         check_title = news.title if news.title else (news.description[:50] if hasattr(news, 'description') else "")
         
-        # 전역 중복 검사
+        # 중복 체크
         if is_similar_title(check_title, global_titles):
             print("패스: 다른 소스에서 이미 다룬 내용."); save_processed_link(filename, news.link); continue
 
@@ -312,8 +304,7 @@ if __name__ == "__main__":
         
         if body_text and img_lines:
             final_source_name = detected_source if "텔레그램" in category else default_source_name
-            
-            # 연예 뉴스 로직이 제거되었으므로 항상 카드뉴스 생성
+            # 연예 뉴스 조건 삭제 -> 모든 뉴스 카드뉴스 생성
             image_file = create_info_image(img_lines, final_source_name)
             
             try:
