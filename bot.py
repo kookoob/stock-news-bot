@@ -1,6 +1,6 @@
 import feedparser
 import tweepy
-import requests  # 구글 라이브러리 대신 직접 접속하는 도구
+import requests
 import os
 import sys
 import time
@@ -20,7 +20,7 @@ except KeyError:
     sys.exit(1)
 
 # ==========================================
-# 2. 설정 값 (뉴스 소스)
+# 2. 뉴스 소스 설정
 # ==========================================
 RSS_US_INVESTING = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069"
 RSS_US_FINANCE   = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"
@@ -42,7 +42,7 @@ except Exception as e:
     sys.exit(1)
 
 # ==========================================
-# 4. 핵심 기능 함수들
+# 4. 기능 함수들
 # ==========================================
 def get_latest_news(rss_url):
     try:
@@ -66,9 +66,7 @@ def save_current_link(last_link_file, current_link):
         f.write(current_link)
 
 def summarize_news(category, title, link):
-    """
-    [핵심 변경] 죽은 라이브러리 대신 '직통 연결'로 요약 요청
-    """
+    # 여기가 핵심입니다. 최신 모델(1.5-flash)로 직접 요청합니다.
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
@@ -100,6 +98,7 @@ def summarize_news(category, title, link):
             result = response.json()
             return result['candidates'][0]['content']['parts'][0]['text']
         else:
+            # 에러 발생 시 내용을 출력해줍니다.
             print(f"⚠️ AI 요청 에러 (코드 {response.status_code}): {response.text}")
             return None
     except Exception as e:
@@ -107,7 +106,7 @@ def summarize_news(category, title, link):
         return None
 
 # ==========================================
-# 5. 메인 실행 로직
+# 5. 메인 실행
 # ==========================================
 def process_news(category_name, rss_url, last_link_file):
     print(f"\n--- [{category_name}] 확인 중 ---")
@@ -143,5 +142,3 @@ if __name__ == "__main__":
     process_news("미국주식(기술)", RSS_US_TECH, "last_link_us_tech.txt")
     time.sleep(2)
     process_news("한국주식(한경)", RSS_KR, "last_link_kr.txt")
-
-
