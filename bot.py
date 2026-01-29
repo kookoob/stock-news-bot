@@ -28,14 +28,12 @@ ACCESS_TOKEN_SECRET = get_clean_env("ACCESS_TOKEN_SECRET")
 client = None
 api = None
 try:
-    # V2 Client (텍스트 게시용)
     client = tweepy.Client(
         consumer_key=CONSUMER_KEY,
         consumer_secret=CONSUMER_SECRET,
         access_token=ACCESS_TOKEN,
         access_token_secret=ACCESS_TOKEN_SECRET
     )
-    # V1.1 API (이미지 업로드용)
     auth = tweepy.OAuth1UserHandler(
         CONSUMER_KEY, CONSUMER_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET
     )
@@ -44,7 +42,7 @@ except Exception as e:
     print(f"⚠️ 트위터 클라이언트 연결 실패: {e}")
 
 # ==========================================
-# 3. 뉴스 소스 리스트 (요청하신 10개)
+# 3. 뉴스 소스 리스트
 # ==========================================
 RSS_SOURCES = [
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
@@ -60,74 +58,59 @@ RSS_SOURCES = [
 ]
 
 # ==========================================
-# 4. 카드뉴스 생성 함수 (16:9 비율 최적화)
+# 4. 카드뉴스 생성 함수
 # ==========================================
 def create_info_image(text_lines, source_name):
     try:
-        # 1. 캔버스 설정 (16:9 비율, 1200x675)
         width, height = 1200, 675 
-        background_color = (18, 18, 18) # 딥 다크 그레이
+        background_color = (18, 18, 18)
         text_color = (235, 235, 235)
         title_color = (255, 255, 255)
-        accent_color = (0, 190, 255) # 시안(Cyan) 포인트 컬러
+        accent_color = (0, 190, 255)
         
         image = Image.new('RGB', (width, height), background_color)
         draw = ImageDraw.Draw(image)
         
-        # 2. 폰트 로드
         font_path = "font.ttf"
         try:
-            # 16:9 비율에 맞춘 폰트 크기 조정
             title_font = ImageFont.truetype(font_path, 54) 
             body_font = ImageFont.truetype(font_path, 32)
             source_font = ImageFont.truetype(font_path, 24)
         except:
-            print("⚠️ 폰트 파일 오류 (font.ttf 확인 필요)")
+            print("⚠️ 폰트 파일 오류")
             return None
 
-        # 3. 레이아웃 배치
-        margin_x = 80       # 좌우 여백
-        current_y = 100     # 텍스트 시작 높이
+        margin_x = 80       
+        current_y = 100     
         
-        # 워터마크 (좌측 상단)
         draw.text((margin_x, 45), f"Market Radar | {source_name}", font=source_font, fill=accent_color)
 
         for i, line in enumerate(text_lines):
             line = line.strip().replace("**", "").replace("##", "")
             if not line: continue
 
-            if i == 0: # --- 제목 처리 ---
-                # 제목용 텍스트 래핑 (가로폭 약 32자 기준)
+            if i == 0: 
                 wrapped_lines = textwrap.wrap(line, width=32)
                 for wl in wrapped_lines:
                     draw.text((margin_x, current_y), wl, font=title_font, fill=title_color)
-                    current_y += 70 # 줄간격
-                
+                    current_y += 70
                 current_y += 25
-                # 구분선 그리기
                 draw.line([(margin_x, current_y), (width-margin_x, current_y)], fill=(80, 80, 80), width=2)
                 current_y += 45
-                
-            else: # --- 본문 요약 처리 ---
-                # 사각형 불렛포인트 직접 그리기
+            else: 
                 bullet_size = 10
                 bullet_y = current_y + 12
                 draw.rectangle(
                     [margin_x - 25, bullet_y, margin_x - 25 + bullet_size, bullet_y + bullet_size],
                     fill=accent_color
                 )
-                
-                # 본문 텍스트 래핑 (가로폭 약 54자 기준 - 16:9라 넓음)
                 wrapped_lines = textwrap.wrap(line, width=54)
                 for wl in wrapped_lines:
                     draw.text((margin_x, current_y), wl, font=body_font, fill=text_color)
-                    current_y += 42 # 줄간격
-                
-                current_y += 10 # 문단 간격
+                    current_y += 42
+                current_y += 10
             
-            # 하단 침범 방지
-            if current_y > height - 50: 
-                break 
+            if current_y > height - 50: break 
                 
         temp_filename = "temp_card_16_9.png"
         image.save(temp_filename)
@@ -137,15 +120,14 @@ def create_info_image(text_lines, source_name):
         return None
 
 # ==========================================
-# 5. AI 요약 함수 (이원화: 본문/이미지 분리)
+# 5. AI 요약 함수 (★ 재시도 기능 추가됨)
 # ==========================================
 def summarize_news(title, link):
     list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
-    # 기본 모델 설정
     target_model = "gemini-1.5-flash" 
 
+    # 모델 자동 선택 (Pro 우선)
     try:
-        # 사용 가능한 모델 조회 (Pro가 있다면 Pro 우선 사용)
         list_res = requests.get(list_url)
         if list_res.status_code == 200:
             models = list_res.json().get('models', [])
@@ -156,7 +138,6 @@ def summarize_news(title, link):
                     break
     except: pass
     
-    # ★ 핵심 프롬프트: 본문과 이미지 텍스트 분리 요청
     prompt = f"""
     뉴스 제목: {title}
     뉴스 링크: {link}
@@ -185,7 +166,6 @@ def summarize_news(title, link):
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
     
-    # 안전 설정 해제 (뉴스 요약 거부 방지)
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -199,42 +179,47 @@ def summarize_news(title, link):
     }
     headers = {'Content-Type': 'application/json'}
 
-    try:
-        response = requests.post(url, headers=headers, json=data)
-        if response.status_code == 200:
-            full_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+    # ★ 3번까지 재시도하는 로직 추가
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=headers, json=data)
             
-            # 응답 파싱 (BODY와 IMAGE 분리)
-            body_part = ""
-            image_lines = []
+            # 성공 (200 OK)
+            if response.status_code == 200:
+                full_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+                if "---BODY---" in full_text and "---IMAGE---" in full_text:
+                    parts = full_text.split("---IMAGE---")
+                    body_raw = parts[0].replace("---BODY---", "").strip()
+                    image_raw = parts[1].strip()
+                    
+                    body_part = body_raw.replace("**", "").replace("##", "")
+                    image_lines = []
+                    for line in image_raw.split('\n'):
+                        clean_line = line.strip().replace("**", "").replace("##", "")
+                        clean_line = re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►\d\.]+\s*", "", clean_line)
+                        if clean_line:
+                            image_lines.append(clean_line)
+                    return body_part, image_lines
+                else:
+                    return None, None
             
-            if "---BODY---" in full_text and "---IMAGE---" in full_text:
-                parts = full_text.split("---IMAGE---")
-                body_raw = parts[0].replace("---BODY---", "").strip()
-                image_raw = parts[1].strip()
+            # 429 에러 (한도 초과) 발생 시 대기
+            elif response.status_code == 429:
+                print(f"⏳ API 한도 초과! 60초 대기 후 재시도 ({attempt+1}/{max_retries})...")
+                time.sleep(60) # 1분 대기
+                continue # 다시 시도
                 
-                # 마크다운 잔재 제거
-                body_part = body_raw.replace("**", "").replace("##", "")
-                
-                # 이미지용 텍스트 리스트화
-                for line in image_raw.split('\n'):
-                    clean_line = line.strip().replace("**", "").replace("##", "")
-                    # 불렛기호 등 잡다한 거 제거
-                    clean_line = re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►\d\.]+\s*", "", clean_line)
-                    if clean_line:
-                        image_lines.append(clean_line)
-                
-                return body_part, image_lines
             else:
-                print("🚨 AI 응답 형식 불일치 (구분자 없음)")
+                print(f"🚨 API 에러: {response.text}")
                 return None, None
-        else:
-            print(f"🚨 API 에러: {response.text}")
+                
+        except Exception as e:
+            print(f"🚨 연결 에러: {e}")
             return None, None
-            
-    except Exception as e:
-        print(f"🚨 연결 에러: {e}")
-        return None, None
+    
+    print("❌ 3회 재시도 실패. 건너뜁니다.")
+    return None, None
 
 # ==========================================
 # 6. 메인 실행 로직
@@ -262,29 +247,24 @@ if __name__ == "__main__":
         if news and check_if_new(filename, news.link):
             print(f"✨ 뉴스 발견: {news.title}")
             
-            # 1. AI 요약 (본문/이미지 분리 생성)
+            # AI 요약 (재시도 로직 포함)
             body_text, img_lines = summarize_news(news.title, news.link)
             
             if body_text and img_lines:
-                # 2. 16:9 이미지 생성
                 image_file = create_info_image(img_lines, source_name)
                 
                 try:
                     media_id = None
-                    # 이미지가 성공적으로 생성되었다면 업로드
                     if image_file:
                         print("🖼️ 16:9 카드뉴스 생성 완료, 업로드 중...")
                         media = api.media_upload(image_file)
                         media_id = media.media_id
                     
-                    # 3. 트윗 작성 (카테고리 태그 제거됨, 본문 바로 시작)
                     final_tweet = f"{body_text}\n\n출처: {source_name}"
                     
-                    # 프리미엄 길이 제한 안전장치 (12000자)
                     if len(final_tweet) > 12000:
                         final_tweet = final_tweet[:11995] + "..."
 
-                    # 4. 전송 (이미지 있으면 포함, 없으면 텍스트만)
                     if media_id:
                         response = client.create_tweet(text=final_tweet, media_ids=[media_id])
                     else:
@@ -293,7 +273,6 @@ if __name__ == "__main__":
                     tweet_id = response.data['id']
                     print("✅ 메인 트윗 업로드 성공!")
                     
-                    # 5. 링크 댓글 달기
                     reply_text = f"🔗 원문 기사:\n{news.link}"
                     client.create_tweet(text=reply_text, in_reply_to_tweet_id=tweet_id)
                     print("✅ 링크 댓글 완료!")
@@ -303,11 +282,12 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(f"❌ 트윗 전송 실패: {e}")
                 
-                # 임시 파일 삭제
                 if image_file and os.path.exists(image_file):
                     os.remove(image_file)
             else:
-                print("🚨 AI 요약 실패 또는 형식 오류")
+                print("🚨 AI 요약 실패 (한도 초과 등)")
         else:
             print("새 뉴스 없음.")
-        time.sleep(2)
+        
+        # 뉴스 하나 처리 후 대기 시간 늘림 (2초 -> 10초)
+        time.sleep(10)
