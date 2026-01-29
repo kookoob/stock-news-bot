@@ -69,7 +69,7 @@ def summarize_news(category, title, link):
     """
     [핵심 변경] 죽은 라이브러리 대신 '직통 연결'로 요약 요청
     """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
     
     prompt = f"""
     너는 주식 시장 전문가 '마켓 레이더'야. 
@@ -143,3 +143,4 @@ if __name__ == "__main__":
     process_news("미국주식(기술)", RSS_US_TECH, "last_link_us_tech.txt")
     time.sleep(2)
     process_news("한국주식(한경)", RSS_KR, "last_link_kr.txt")
+
