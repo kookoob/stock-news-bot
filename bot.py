@@ -1,13 +1,13 @@
 import feedparser
 import tweepy
-import google.generativeai as genai  # 공식 도구 사용
+import requests
 import os
 import sys
 import time
 import re
 
 # ==========================================
-# 1. 환경 변수 및 공백 제거 (유지)
+# 1. 환경 변수 로드 (공백 제거)
 # ==========================================
 def get_clean_env(name):
     val = os.environ.get(name)
@@ -21,17 +21,9 @@ ACCESS_TOKEN = get_clean_env("ACCESS_TOKEN")
 ACCESS_TOKEN_SECRET = get_clean_env("ACCESS_TOKEN_SECRET")
 
 # ==========================================
-# 2. AI 설정 (여기가 핵심!)
+# 2. 트위터 클라이언트
 # ==========================================
-# 파이썬 3.10이라서 이제 이 공식 도구가 잘 작동합니다.
-try:
-    genai.configure(api_key=GEMINI_API_KEY)
-except Exception as e:
-    print(f"❌ AI 설정 실패: {e}")
-
-# ==========================================
-# 3. 트위터 설정
-# ==========================================
+client = None
 try:
     client = tweepy.Client(
         consumer_key=CONSUMER_KEY,
@@ -40,9 +32,52 @@ try:
         access_token_secret=ACCESS_TOKEN_SECRET
     )
 except:
-    pass # 트위터 에러는 일단 무시 (AI 확인이 먼저니까)
+    print("⚠️ 트위터 클라이언트 생성 오류 (키 확인 필요)")
 
-# 뉴스 소스
+# ==========================================
+# 3. AI 함수 (모델 자동 탐색 기능 탑재)
+# ==========================================
+def summarize_news(category, title, link):
+    # 1. 사용 가능한 모델 목록 조회
+    list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
+    target_model = "gemini-1.5-flash" # 기본값
+
+    try:
+        # 모델 리스트를 받아봅니다.
+        list_res = requests.get(list_url)
+        if list_res.status_code == 200:
+            models = list_res.json().get('models', [])
+            # 'generateContent' 기능을 지원하는 모델 찾기
+            for m in models:
+                if 'generateContent' in m.get('supportedGenerationMethods', []):
+                    # 모델 이름에서 'models/' 제거
+                    target_model = m['name'].replace('models/', '')
+                    print(f"🤖 발견된 사용 가능 모델: {target_model}")
+                    break # 하나 찾으면 그걸로 결정
+    except Exception as e:
+        print(f"⚠️ 모델 목록 조회 실패: {e}, 기본값({target_model}) 사용")
+
+    # 2. 찾은 모델로 요약 요청
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
+    
+    prompt = f"뉴스 제목: {title}\n뉴스 링크: {link}\n주식 뉴스 3줄 요약 (해요체)."
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
+    headers = {'Content-Type': 'application/json'}
+
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
+        else:
+            print(f"⚠️ AI 요청 실패 (코드 {response.status_code}): {response.text}")
+            return None
+    except Exception as e:
+        print(f"⚠️ AI 연결 에러: {e}")
+        return None
+
+# ==========================================
+# 4. 뉴스 처리 로직
+# ==========================================
 RSS_SOURCES = [
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt"),
     ("미국주식(금융)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "last_link_us_finance.txt"),
@@ -50,9 +85,6 @@ RSS_SOURCES = [
     ("한국주식(한경)", "https://www.hankyung.com/feed/finance", "last_link_kr.txt")
 ]
 
-# ==========================================
-# 4. 기능 함수들
-# ==========================================
 def get_latest_news(rss_url):
     try:
         feed = feedparser.parse(rss_url)
@@ -68,37 +100,6 @@ def save_current_link(last_link_file, current_link):
     with open(last_link_file, 'w', encoding='utf-8') as f:
         f.write(current_link)
 
-def summarize_news(category, title, link):
-    """
-    공식 도구로 3가지 모델을 순서대로 다 찔러봅니다.
-    """
-    models_to_try = ['gemini-1.5-flash', 'gemini-pro', 'gemini-1.0-pro-latest']
-    
-    prompt = f"""
-    뉴스 제목: {title}
-    뉴스 링크: {link}
-    위 주식 뉴스를 한국어로 3줄 요약해줘.
-    말투는 '해요체'로 친절하게.
-    """
-
-    for model_name in models_to_try:
-        try:
-            print(f"🤖 AI 시도 중... (모델: {model_name})")
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            
-            if response.text:
-                print(f"🎉 AI 요약 성공! ({model_name})")
-                return response.text
-        except Exception as e:
-            print(f"⚠️ {model_name} 실패: {e}")
-            continue # 다음 모델 시도
-            
-    return None
-
-# ==========================================
-# 5. 메인 실행
-# ==========================================
 if __name__ == "__main__":
     for category, rss_url, filename in RSS_SOURCES:
         print(f"\n--- [{category}] ---")
@@ -107,15 +108,11 @@ if __name__ == "__main__":
         if news and check_if_new(filename, news.link):
             print(f"✨ 뉴스 발견: {news.title}")
             
-            # 1. AI 요약 시도
             summary = summarize_news(category, news.title, news.link)
-            
-            # 2. 실패시 비상 문구
             if not summary:
-                print("🚨 모든 AI 모델 실패. 제목만 사용합니다.")
-                summary = f"{news.title}\n(AI 서버 응답 없음)"
+                print("🚨 AI 실패. 제목만 사용합니다.")
+                summary = f"{news.title}\n(AI 응답 없음)"
 
-            # 3. 트윗 작성
             tweet_text = f"[{category}] 🚨\n\n{summary}\n\n🔗 {news.link}"
             
             try:
@@ -123,9 +120,8 @@ if __name__ == "__main__":
                 print("✅ 트윗 업로드 성공!")
                 save_current_link(filename, news.link)
             except Exception as e:
-                # 트위터 에러 메시지를 있는 그대로 출력
                 print(f"❌ 트윗 실패: {e}")
+                print("👉 402 에러라면: 트위터 프로젝트를 삭제하고 'Free'로 다시 만드세요.")
         else:
             print("새 뉴스 없음.")
-        
         time.sleep(1)
