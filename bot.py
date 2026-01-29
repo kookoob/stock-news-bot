@@ -7,7 +7,7 @@ import time
 import re
 
 # ==========================================
-# 1. 환경 변수 로드 (공백 제거)
+# 1. 환경 변수 로드
 # ==========================================
 def get_clean_env(name):
     val = os.environ.get(name)
@@ -32,35 +32,55 @@ try:
         access_token_secret=ACCESS_TOKEN_SECRET
     )
 except:
-    print("⚠️ 트위터 클라이언트 생성 오류 (키 확인 필요)")
+    print("⚠️ 트위터 클라이언트 생성 오류")
 
 # ==========================================
-# 3. AI 함수 (모델 자동 탐색 기능 탑재)
+# 3. 뉴스 소스 설정 (출처 이름 추가)
+# ==========================================
+# (카테고리, RSS주소, 파일명, 표기할 출처명)
+RSS_SOURCES = [
+    ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
+    ("미국주식(금융)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "last_link_us_finance.txt", "CNBC"),
+    ("미국주식(기술)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", "last_link_us_tech.txt", "CNBC"),
+    ("한국주식(한경)", "https://www.hankyung.com/feed/finance", "last_link_kr.txt", "한국경제")
+]
+
+# ==========================================
+# 4. AI 요약 함수 (프롬프트 대폭 수정)
 # ==========================================
 def summarize_news(category, title, link):
-    # 1. 사용 가능한 모델 목록 조회
+    # 모델 자동 탐색
     list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
     target_model = "gemini-1.5-flash" # 기본값
 
     try:
-        # 모델 리스트를 받아봅니다.
         list_res = requests.get(list_url)
         if list_res.status_code == 200:
             models = list_res.json().get('models', [])
-            # 'generateContent' 기능을 지원하는 모델 찾기
             for m in models:
                 if 'generateContent' in m.get('supportedGenerationMethods', []):
-                    # 모델 이름에서 'models/' 제거
                     target_model = m['name'].replace('models/', '')
-                    print(f"🤖 발견된 사용 가능 모델: {target_model}")
-                    break # 하나 찾으면 그걸로 결정
-    except Exception as e:
-        print(f"⚠️ 모델 목록 조회 실패: {e}, 기본값({target_model}) 사용")
+                    break
+    except: pass
 
-    # 2. 찾은 모델로 요약 요청
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
+    # AI에게 보낼 명령 (프롬프트) 개선
+    prompt = f"""
+    뉴스 제목: {title}
+    뉴스 링크: {link}
+
+    위 뉴스 내용을 바탕으로 트위터에 올릴 글을 작성해줘.
     
-    prompt = f"뉴스 제목: {title}\n뉴스 링크: {link}\n주식 뉴스 3줄 요약 (해요체)."
+    [작성 규칙]
+    1. 첫째 줄: 기사의 원래 제목을 '한국어'로 완벽하게 번역해서 적을 것. (이모지 1개 포함)
+    2. 본문: 기사의 핵심 내용을 3가지 포인트로 요약할 것.
+       - 각 포인트는 '✅' 또는 '👉' 같은 이모지로 시작할 것.
+       - 문장은 간결하고 명확하게 작성할 것.
+       - 투자자에게 말하듯이 정중한 해요체(~해요)를 사용할 것.
+    3. 링크나 출처는 절대 적지 말 것 (내가 따로 붙일 거임).
+    4. 전체 길이는 200자를 넘지 않도록 할 것.
+    """
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
     data = {"contents": [{"parts": [{"text": prompt}]}]}
     headers = {'Content-Type': 'application/json'}
 
@@ -68,23 +88,12 @@ def summarize_news(category, title, link):
         response = requests.post(url, headers=headers, json=data)
         if response.status_code == 200:
             return response.json()['candidates'][0]['content']['parts'][0]['text']
-        else:
-            print(f"⚠️ AI 요청 실패 (코드 {response.status_code}): {response.text}")
-            return None
-    except Exception as e:
-        print(f"⚠️ AI 연결 에러: {e}")
         return None
+    except: return None
 
 # ==========================================
-# 4. 뉴스 처리 로직
+# 5. 뉴스 처리 및 트윗 전송
 # ==========================================
-RSS_SOURCES = [
-    ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt"),
-    ("미국주식(금융)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "last_link_us_finance.txt"),
-    ("미국주식(기술)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", "last_link_us_tech.txt"),
-    ("한국주식(한경)", "https://www.hankyung.com/feed/finance", "last_link_kr.txt")
-]
-
 def get_latest_news(rss_url):
     try:
         feed = feedparser.parse(rss_url)
@@ -101,7 +110,7 @@ def save_current_link(last_link_file, current_link):
         f.write(current_link)
 
 if __name__ == "__main__":
-    for category, rss_url, filename in RSS_SOURCES:
+    for category, rss_url, filename, source_name in RSS_SOURCES:
         print(f"\n--- [{category}] ---")
         news = get_latest_news(rss_url)
         
@@ -109,19 +118,23 @@ if __name__ == "__main__":
             print(f"✨ 뉴스 발견: {news.title}")
             
             summary = summarize_news(category, news.title, news.link)
-            if not summary:
-                print("🚨 AI 실패. 제목만 사용합니다.")
-                summary = f"{news.title}\n(AI 응답 없음)"
-
-            tweet_text = f"[{category}] 🚨\n\n{summary}\n\n🔗 {news.link}"
             
-            try:
-                client.create_tweet(text=tweet_text)
-                print("✅ 트윗 업로드 성공!")
-                save_current_link(filename, news.link)
-            except Exception as e:
-                print(f"❌ 트윗 실패: {e}")
-                print("👉 402 에러라면: 트위터 프로젝트를 삭제하고 'Free'로 다시 만드세요.")
+            if summary:
+                # [요청하신 포맷 적용]
+                # 제목 번역 및 요약 (AI 결과)
+                # (빈 줄)
+                # 출처: OOO
+                tweet_text = f"[{category}]\n\n{summary}\n\n출처: {source_name}"
+                
+                try:
+                    # 텍스트만 업로드 (링크 미리보기 없음)
+                    client.create_tweet(text=tweet_text)
+                    print("✅ 트윗 업로드 성공!")
+                    save_current_link(filename, news.link)
+                except Exception as e:
+                    print(f"❌ 트윗 실패: {e}")
+            else:
+                print("🚨 AI 요약 실패로 건너뜀")
         else:
             print("새 뉴스 없음.")
-        time.sleep(1)
+        time.sleep(2)
