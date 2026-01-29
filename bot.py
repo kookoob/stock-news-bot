@@ -38,8 +38,8 @@ try:
         CONSUMER_KEY, CONSUMER_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET
     )
     api = tweepy.API(auth)
-except:
-    print("⚠️ 트위터 클라이언트 생성 오류")
+except Exception as e:
+    print(f"⚠️ 트위터 클라이언트 생성 오류: {e}")
 
 # ==========================================
 # 3. 뉴스 소스 설정
@@ -54,7 +54,9 @@ RSS_SOURCES = [
     ("한국주식(매경)", "https://www.mk.co.kr/rss/50200011/", "last_link_mk.txt", "매일경제"),
     ("미국주식(WSJ_Opinion)", "https://feeds.content.dowjones.io/public/rss/RSSOpinion", "last_link_wsj_op.txt", "WSJ"),
     ("미국주식(WSJ_Market)", "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", "last_link_wsj_mkt.txt", "WSJ"),
-    ("미국주식(WSJ_Economy)", "https://feeds.content.dowjones.io/public/rss/socialeconomyfeed", "last_link_wsj_eco.txt", "WSJ")
+    ("미국주식(WSJ_Economy)", "https://feeds.content.dowjones.io/public/rss/socialeconomyfeed", "last_link_wsj_eco.txt", "WSJ"),
+    ("연예(노컷)", "https://www.nocutnews.co.kr/rss/ent.xml", "last_link_ent_nocut.txt", "노컷뉴스"),
+    ("연예(동아)", "https://rss.donga.com/entertainment.xml", "last_link_ent_donga.txt", "동아일보")
 ]
 
 # ==========================================
@@ -74,13 +76,14 @@ def create_info_image(text_lines, source_name):
         font_path = "font.ttf"
         try:
             title_font = ImageFont.truetype(font_path, 55) 
-            body_font = ImageFont.truetype(font_path, 32)
+            body_font = ImageFont.truetype(font_path, 34)
             source_font = ImageFont.truetype(font_path, 24)
-        except:
+        except Exception as e:
+            print(f"⚠️ 폰트 로드 실패: {e}")
             return None
 
         margin_x = 80 
-        current_y = 100 
+        current_y = 110 
         
         draw.text((margin_x, 45), f"Market Radar | {source_name}", font=source_font, fill=accent_color)
 
@@ -92,26 +95,24 @@ def create_info_image(text_lines, source_name):
                 wrapped_lines = textwrap.wrap(line, width=30)
                 for wl in wrapped_lines:
                     draw.text((margin_x, current_y), wl, font=title_font, fill=title_color)
-                    current_y += 70
-                current_y += 25
-                draw.line([(margin_x, current_y), (width-margin_x, current_y)], fill=(60, 60, 60), width=2)
-                current_y += 40
-            else: # 본문 요약 (최대 7개 문장)
-                # 불렛포인트 사각형 그리기
-                bullet_size = 10
+                    current_y += 75
+                current_y += 30
+                draw.line([(margin_x, current_y), (width-margin_x, current_y)], fill=(70, 70, 70), width=2)
+                current_y += 50
+            else: # 본문 요약
+                bullet_size = 12
                 draw.rectangle(
-                    [margin_x - 25, current_y + 12, margin_x - 25 + bullet_size, current_y + 12 + bullet_size],
+                    [margin_x - 30, current_y + 14, margin_x - 30 + bullet_size, current_y + 14 + bullet_size],
                     fill=accent_color
                 )
                 
-                # 가로폭 넉넉하게 줄바꿈
-                wrapped_lines = textwrap.wrap(line, width=50)
+                wrapped_lines = textwrap.wrap(line, width=52)
                 for wl in wrapped_lines:
                     draw.text((margin_x, current_y), wl, font=body_font, fill=text_color)
-                    current_y += 45
-                current_y += 8
+                    current_y += 48
+                current_y += 12
             
-            if current_y > height - 60: break # 하단 잘림 방지
+            if current_y > height - 80: break
                 
         temp_filename = "temp_card.png"
         image.save(temp_filename)
@@ -121,7 +122,7 @@ def create_info_image(text_lines, source_name):
         return None
 
 # ==========================================
-# 5. AI 요약 함수 (본문/이미지 텍스트 분리 추출)
+# 5. AI 요약 함수 (안전 필터 및 파싱 강화)
 # ==========================================
 def summarize_news(title, link):
     prompt = f"""
@@ -156,17 +157,38 @@ def summarize_news(title, link):
     """
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-    data = {"contents": [{"parts": [{"text": prompt}]}]}
+    
+    # 안전 설정 추가
+    data = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+        ]
+    }
     
     try:
         response = requests.post(url, json=data)
         if response.status_code == 200:
             full_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-            body = full_text.split("---BODY---")[1].split("---IMAGE---")[0].strip()
-            image_text = full_text.split("---IMAGE---")[1].strip().split('\n')
-            return body, image_text
+            
+            # 파싱 로직 강화 (문자열 존재 확인)
+            if "---BODY---" in full_text and "---IMAGE---" in full_text:
+                body = full_text.split("---BODY---")[1].split("---IMAGE---")[0].strip()
+                image_text_raw = full_text.split("---IMAGE---")[1].strip()
+                image_lines = [line.strip() for line in image_text_raw.split('\n') if line.strip()]
+                return body, image_lines
+            else:
+                print("🚨 AI 응답 형식이 올바르지 않음")
+                return None, None
+        else:
+            print(f"🚨 API 에러: {response.status_code}")
+            return None, None
+    except Exception as e:
+        print(f"🚨 요약 실패: {e}")
         return None, None
-    except: return None, None
 
 # ==========================================
 # 6. 메인 실행
@@ -201,12 +223,17 @@ if __name__ == "__main__":
                 try:
                     media_id = None
                     if image_file:
+                        print("🖼️ 이미지 업로드 중...")
                         media = api.media_upload(image_file)
                         media_id = media.media_id
                     
                     final_text = body_text + f"\n\n출처: {source_name}"
                     
-                    # 트윗 전송 (이미지 포함)
+                    # 프리미엄용 길이 안전장치 (12,000자)
+                    if len(final_text) > 12000:
+                        final_text = final_text[:11995] + "..."
+
+                    # 트윗 전송
                     response = client.create_tweet(text=final_text, media_ids=[media_id] if media_id else None)
                     tweet_id = response.data['id']
                     
@@ -215,8 +242,14 @@ if __name__ == "__main__":
                     print("✅ 업로드 완료!")
 
                     save_current_link(filename, news.link)
-                    if image_file and os.path.exists(image_file): os.remove(image_file)
-                    
                 except Exception as e:
-                    print(f"❌ 트윗 실패: {e}")
+                    print(f"❌ 트윗 전송 오류: {e}")
+                finally:
+                    # 파일 삭제 보장
+                    if image_file and os.path.exists(image_file): 
+                        os.remove(image_file)
+            else:
+                print("🚨 요약 결과가 비어있어 건너뜀")
+        else:
+            print("새 뉴스 없음.")
         time.sleep(2)
