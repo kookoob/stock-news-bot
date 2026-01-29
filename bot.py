@@ -4,13 +4,12 @@ import requests
 import os
 import sys
 import time
-import json
+import re # 태그 제거용
 
 # ==========================================
 # 1. 환경 변수 설정
 # ==========================================
 try:
-    # 혹시 모를 공백 제거를 위해 .strip() 추가
     GEMINI_API_KEY = os.environ["GEMINI_API_KEY"].strip()
     CONSUMER_KEY = os.environ["CONSUMER_KEY"].strip()
     CONSUMER_SECRET = os.environ["CONSUMER_SECRET"].strip()
@@ -45,6 +44,13 @@ except Exception as e:
 # ==========================================
 # 4. 기능 함수들
 # ==========================================
+def clean_html(raw_html):
+    """RSS 설명글에 있는 지저분한 태그 제거"""
+    if not raw_html: return ""
+    cleanr = re.compile('<.*?>')
+    cleantext = re.sub(cleanr, '', raw_html)
+    return cleantext.strip()
+
 def get_latest_news(rss_url):
     try:
         feed = feedparser.parse(rss_url)
@@ -67,59 +73,23 @@ def save_current_link(last_link_file, current_link):
         f.write(current_link)
 
 def summarize_news(category, title, link):
-    # [핵심] 4가지 모델 이름을 순서대로 다 시도해봅니다. (하나라도 걸리면 성공)
-    models_to_try = [
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-001",
-        "gemini-pro",
-        "gemini-1.0-pro"
-    ]
+    # [1차 시도] AI에게 요약 요청
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     
-    prompt = f"""
-    너는 주식 시장 전문가 '마켓 레이더'야. 
-    아래 뉴스 제목을 보고 한국인 투자자들이 이해하기 쉽게 3줄로 요약해줘.
-    
-    [규칙]
-    1. 첫 줄은 내용을 한 문장으로 명확하게 설명할 것.
-    2. 두 번째 줄은 이 뉴스가 시장에 미칠 영향이나 주목할 점을 언급할 것.
-    3. 세 번째 줄은 재치 있는 한마디나 격언, 또는 이모지를 포함한 코멘트를 달 것.
-    4. 말투는 친절하고 전문적이지만 딱딱하지 않게 해요체(~해요)를 쓸 것.
-    5. 카테고리({category})에 맞는 전문성을 보여줄 것.
-    6. 전체 길이는 150자를 넘지 말 것.
-
-    뉴스 제목: {title}
-    뉴스 링크: {link}
-    """
+    prompt = f"뉴스 제목: {title}\n뉴스 링크: {link}\n이 주식 뉴스를 한국어로 3줄 요약해줘. 해요체로 친절하게."
     
     headers = {'Content-Type': 'application/json'}
-    data = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
-    }
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
 
-    # 모델 리스트를 돌면서 성공할 때까지 시도
-    for model_name in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
-        try:
-            response = requests.post(url, headers=headers, json=data)
-            if response.status_code == 200:
-                result = response.json()
-                # 성공하면 바로 결과 리턴하고 종료
-                return result['candidates'][0]['content']['parts'][0]['text']
-            elif response.status_code == 404:
-                # 404면 다음 모델 시도
-                print(f"⚠️ {model_name} 모델 없음(404), 다음 모델 시도...")
-                continue 
-            else:
-                print(f"⚠️ AI 에러 ({model_name}, 코드 {response.status_code}): {response.text}")
-                continue
-        except Exception as e:
-            print(f"⚠️ 연결 실패 ({model_name}): {e}")
-            continue
-            
-    print("❌ 모든 AI 모델 시도 실패. 잠시 후 다시 시도하세요.")
-    return None
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
+        else:
+            print(f"⚠️ AI 연결 실패 (코드 {response.status_code}), 비상 모드 전환...")
+            return None # 실패하면 None 리턴 -> 비상 모드 발동
+    except Exception:
+        return None
 
 # ==========================================
 # 5. 메인 실행
@@ -135,9 +105,15 @@ def process_news(category_name, rss_url, last_link_file):
     if check_if_new(last_link_file, news.link):
         print(f"✨ 새 뉴스 발견: {news.title}")
         
+        # 1. AI 요약 시도
         summary = summarize_news(category_name, news.title, news.link)
+        
+        # 2. AI 실패 시 비상 모드 (RSS 설명글 사용)
         if not summary:
-            return
+            print("🚨 비상 모드: AI 대신 원문 설명글을 가져옵니다.")
+            raw_desc = news.get("summary", news.get("description", "내용 없음"))
+            summary = clean_html(raw_desc)[:120] + "..." # 120자로 자르기
+            summary = f"{summary}\n(AI 서버 오류로 원문 요약을 전송합니다 🤖)"
 
         tweet_text = f"[{category_name} 속보] 🚨\n\n{summary}\n\n🔗 원문: {news.link}"
         
