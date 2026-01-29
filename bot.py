@@ -65,8 +65,8 @@ RSS_SOURCES = [
     ("연예뉴스(SBS)", "https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=14&plink=RSSREADER", "last_link_sbs_ent.txt", "SBS연예")
 ]
 
-# ★ [수정] 기억할 히스토리 개수 (500개로 상향) -> 중복 방지 강화
-MAX_HISTORY = 500
+# ★ [수정] 기억할 히스토리 개수 (1000개로 상향)
+MAX_HISTORY = 1000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
 # ==========================================
@@ -100,7 +100,7 @@ def is_operating_time(category):
         print(f"💤 [퇴근] 운영 시간이 아닙니다 (06:00~21:00). 현재: {current_hour}시 ({category})")
         return False
 
-# (B) ★ [수정] 12시간 이내 기사인지 체크
+# (B) ★ [수정] 6시간 이내 기사인지 체크
 def is_recent_news(entry):
     if not hasattr(entry, 'published_parsed') or not entry.published_parsed:
         return True
@@ -110,9 +110,9 @@ def is_recent_news(entry):
         current_time = datetime.now(timezone.utc)
         time_diff = current_time - published_time
         
-        # ★ 12시간 경과 체크 (기존 24시간 -> 12시간으로 단축)
-        if time_diff > timedelta(hours=12):
-            print(f"⏳ [오래된 뉴스] 12시간 경과로 스킵: {time_diff}")
+        # ★ 6시간 경과 체크 (기존 12시간 -> 6시간으로 단축)
+        if time_diff > timedelta(hours=6):
+            print(f"⏳ [오래된 뉴스] 6시간 경과로 스킵: {time_diff}")
             return False
         return True
     except:
@@ -263,7 +263,7 @@ def summarize_news(target_model, title, link, content_text=""):
     return None, None, None
 
 # ==========================================
-# 6. 기록 관리 (최대 500개 유지 & 중복 검사)
+# 6. 기록 관리 (최대 1000개 유지 & 중복 검사)
 # ==========================================
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
@@ -318,7 +318,7 @@ if __name__ == "__main__":
             news = feed.entries[0]
         except: print("RSS 파싱 실패"); continue
         
-        # 2. 시간 제한 체크 (12시간)
+        # 2. 시간 제한 체크 (6시간)
         if not is_recent_news(news):
             continue
 
@@ -362,7 +362,7 @@ if __name__ == "__main__":
                 print("✅ 업로드 성공")
                 client.create_tweet(text=f"🔗 원문 기사:\n{real_link}", in_reply_to_tweet_id=tweet_id)
                 
-                # 성공 시 기록 (500개까지 유지)
+                # 성공 시 기록 (1000개까지 유지)
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
