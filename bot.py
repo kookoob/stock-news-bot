@@ -43,7 +43,7 @@ except Exception as e:
     print(f"⚠️ 트위터 클라이언트 연결 실패: {e}")
 
 # ==========================================
-# 3. 뉴스 소스 리스트 (매일경제 삭제 / 블룸버그 추가)
+# 3. 뉴스 소스 리스트
 # ==========================================
 RSS_SOURCES = [
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
@@ -52,13 +52,7 @@ RSS_SOURCES = [
     ("한국주식(한경)", "https://www.hankyung.com/feed/finance", "last_link_kr.txt", "한국경제"),
     ("미국주식(Yahoo)", "https://finance.yahoo.com/news/rssindex", "last_link_yahoo.txt", "Yahoo Finance"),
     ("미국주식(Tech)", "https://techcrunch.com/feed/", "last_link_techcrunch.txt", "TechCrunch"),
-    
-    # [삭제됨] 매일경제
-    # ("한국주식(매경)", "https://www.mk.co.kr/rss/50200011/", "last_link_mk.txt", "매일경제"),
-
-    # [추가됨] 블룸버그 (RSSHub 사용)
-    ("미국주식(블룸버그)", "https://rsshub.app/bloomberg/markets", "last_link_bloomberg.txt", "Bloomberg"),
-
+    ("한국주식(매경)", "https://www.mk.co.kr/rss/50200011/", "last_link_mk.txt", "매일경제"),
     ("미국주식(WSJ_Opinion)", "https://feeds.content.dowjones.io/public/rss/RSSOpinion", "last_link_wsj_op.txt", "WSJ"),
     ("미국주식(WSJ_Market)", "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", "last_link_wsj_mkt.txt", "WSJ"),
     ("미국주식(WSJ_Economy)", "https://feeds.content.dowjones.io/public/rss/socialeconomyfeed", "last_link_wsj_eco.txt", "WSJ"),
@@ -66,7 +60,7 @@ RSS_SOURCES = [
 ]
 
 # ==========================================
-# 4. 카드뉴스 생성 함수
+# 4. 카드뉴스 생성 함수 (★ 잘림 방지 패치 적용)
 # ==========================================
 def create_info_image(text_lines, source_name):
     try:
@@ -120,7 +114,8 @@ def create_info_image(text_lines, source_name):
             if not line: continue
 
             if i == 0: # 제목
-                wrapped_lines = textwrap.wrap(line, width=32)
+                # ★ [수정] 기존 32 -> 18로 대폭 축소 (한글 18자 * 54px = 972px로 안전하게 맞춤)
+                wrapped_lines = textwrap.wrap(line, width=18)
                 for wl in wrapped_lines:
                     draw.text((margin_x, current_y), wl, font=title_font, fill=title_color)
                     current_y += 70
@@ -134,7 +129,8 @@ def create_info_image(text_lines, source_name):
                     [margin_x - 25, bullet_y, margin_x - 25 + bullet_size, bullet_y + bullet_size],
                     fill=accent_color
                 )
-                wrapped_lines = textwrap.wrap(line, width=54)
+                # ★ [수정] 기존 54 -> 35로 축소 (한글 35자 * 32px = 1120px, 마진 고려하여 안전)
+                wrapped_lines = textwrap.wrap(line, width=35)
                 for wl in wrapped_lines:
                     draw.text((margin_x, current_y), wl, font=body_font, fill=text_color)
                     current_y += 42
@@ -170,7 +166,7 @@ def get_working_model():
     return "gemini-1.5-flash"
 
 # ==========================================
-# 6. AI 요약 함수 (숫자 보호 로직 포함)
+# 6. AI 요약 함수
 # ==========================================
 def summarize_news(target_model, title, link, content_text=""):
     prompt = f"""
@@ -240,13 +236,8 @@ def summarize_news(target_model, title, link, content_text=""):
                     image_lines = []
                     for line in image_raw.split('\n'):
                         clean_line = line.strip().replace("**", "").replace("##", "")
-                        
-                        # 숫자 데이터 보호를 위한 정교한 정규식
-                        # 1. 기호만 먼저 제거
-                        clean_line = re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►]+\s*", "", clean_line)
-                        # 2. '숫자+점+공백' (1. ) 형태만 제거 (연도/금액 보존)
-                        clean_line = re.sub(r"^\d+\.\s+", "", clean_line)
-                        
+                        clean_line = re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►]+\s*", "", clean_line) # 기호만 제거
+                        clean_line = re.sub(r"^\d+\.\s+", "", clean_line) # 1. 형식만 제거
                         if clean_line: image_lines.append(clean_line)
                     
                     source_name = source_raw.split('\n')[0].strip()
