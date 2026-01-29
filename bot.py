@@ -43,7 +43,6 @@ RSS_SOURCES = [
     ("미국주식(기술)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", "last_link_us_tech.txt", "CNBC"),
     ("한국주식(한경)", "https://www.hankyung.com/feed/finance", "last_link_kr.txt", "한국경제"),
     ("미국주식(Yahoo)", "https://finance.yahoo.com/news/rssindex", "last_link_yahoo.txt", "Yahoo Finance"),
-    ("미국주식(MW)", "http://feeds.marketwatch.com/marketwatch/topstories/", "last_link_mw.txt", "MarketWatch"),
     ("미국주식(Tech)", "https://techcrunch.com/feed/", "last_link_techcrunch.txt", "TechCrunch"),
     
     # [수정됨] 매일경제 RSS 링크 교체 (30100041 -> 50200011)
@@ -155,4 +154,5 @@ if __name__ == "__main__":
         else:
             print("새 뉴스 없음.")
         time.sleep(2)
+
 
