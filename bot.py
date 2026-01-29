@@ -35,13 +35,27 @@ except:
     print("⚠️ 트위터 클라이언트 생성 오류")
 
 # ==========================================
-# 3. 뉴스 소스 설정
+# 3. 뉴스 소스 설정 (기존 목록에 아래 내용 추가)
 # ==========================================
 RSS_SOURCES = [
+    # --- [기존 소스들] ---
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
     ("미국주식(금융)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "last_link_us_finance.txt", "CNBC"),
     ("미국주식(기술)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", "last_link_us_tech.txt", "CNBC"),
-    ("한국주식(한경)", "https://www.hankyung.com/feed/finance", "last_link_kr.txt", "한국경제")
+    ("한국주식(한경)", "https://www.hankyung.com/feed/finance", "last_link_kr.txt", "한국경제"),
+
+    # --- [✨ 새로 추가할 추천 소스 ✨] ---
+    # 1. 야후 파이낸스 (뉴스량 많음)
+    ("미국주식(Yahoo)", "https://finance.yahoo.com/news/rssindex", "last_link_yahoo.txt", "Yahoo Finance"),
+    
+    # 2. 마켓워치 (핵심 이슈 위주)
+    ("미국주식(MW)", "http://feeds.marketwatch.com/marketwatch/topstories/", "last_link_mw.txt", "MarketWatch"),
+    
+    # 3. 테크크런치 (기술/AI)
+    ("미국주식(Tech)", "https://techcrunch.com/feed/", "last_link_techcrunch.txt", "TechCrunch"),
+
+    # 4. 매일경제 (증권)
+    ("한국주식(매경)", "https://www.mk.co.kr/rss/30100041/", "last_link_mk.txt", "매일경제")
 ]
 
 # ==========================================
@@ -147,3 +161,4 @@ if __name__ == "__main__":
         else:
             print("새 뉴스 없음.")
         time.sleep(2)
+
