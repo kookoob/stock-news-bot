@@ -78,7 +78,7 @@ def summarize_news(category, title, link):
        - 오로지 기사의 내용만 요약 및 정리
        - 축약체를 사용할 것. (증가. 감소. 발표. ~함. ~중. 이런식으로)
        - 본문 하단에는 관련 주식의 티커와 해시태그를 붙여줘 (예시 : $TSLA #TESLA #테슬라)
-    3. 링크나 출처는 절대 적지 말 것 (내가 따로 붙일 거임).
+    3. 링크나 URL은 절대 포함하지 말 것.
     """
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
@@ -139,5 +139,6 @@ if __name__ == "__main__":
         else:
             print("새 뉴스 없음.")
         time.sleep(2)
+
 
 
