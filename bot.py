@@ -6,7 +6,6 @@ import sys
 import time
 import textwrap
 import re
-# ★ 날짜/시간 관련 모듈 추가
 from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageDraw, ImageFont
 
@@ -61,7 +60,7 @@ RSS_SOURCES = [
 ]
 
 # ==========================================
-# 4. 카드뉴스 생성 함수 (날짜/계정 추가)
+# 4. 카드뉴스 생성 함수
 # ==========================================
 def create_info_image(text_lines, source_name):
     try:
@@ -85,36 +84,29 @@ def create_info_image(text_lines, source_name):
 
         margin_x = 80       
         
-        # --- [상단 헤더 영역 디자인] ---
+        # --- [상단 헤더] ---
         header_y = 45
         
-        # 1. 출처 표시 (좌측 상단, 하늘색 포인트)
         if source_name:
             header_text = f"Market Radar | {source_name}"
         else:
             header_text = "Market Radar"
         draw.text((margin_x, header_y), header_text, font=source_font, fill=accent_color)
         
-        # 2. 트위터 계정 표시 (출처 바로 아래, 흰색)
         draw.text((margin_x, header_y + 30), "@marketradar0", font=source_font, fill=text_color)
 
-        # 3. 날짜 표시 (우측 상단, 한국 시간 기준)
-        KST = timezone(timedelta(hours=9)) # 한국 표준시 설정
+        KST = timezone(timedelta(hours=9))
         now = datetime.now(KST)
-        date_str = f"{now.year % 100}년 {now.month}월 {now.day}일" # "26년 1월 29일" 형식
+        date_str = f"{now.year % 100}년 {now.month}월 {now.day}일"
 
-        # 우측 정렬을 위해 텍스트 너비 계산
         try:
-            # Pillow 최신 버전
             date_width = draw.textlength(date_str, font=source_font)
         except AttributeError:
-            # Pillow 구버전 호환
             date_width = source_font.getsize(date_str)[0]
             
         draw.text((width - margin_x - date_width, header_y), date_str, font=source_font, fill=text_color)
 
-        # --- [본문 영역 디자인] ---
-        # 헤더가 두 줄이 되었으므로 시작 위치를 조금 더 아래로 조정
+        # --- [본문 영역] ---
         current_y = 140     
 
         for i, line in enumerate(text_lines):
@@ -172,7 +164,7 @@ def get_working_model():
     return "gemini-1.5-flash"
 
 # ==========================================
-# 6. AI 요약 함수
+# 6. AI 요약 함수 (★ 숫자 보호 로직 강화)
 # ==========================================
 def summarize_news(target_model, title, link, content_text=""):
     prompt = f"""
@@ -190,7 +182,9 @@ def summarize_news(target_model, title, link, content_text=""):
 
     [작성 규칙 2: 인포그래픽 이미지]
     - 구분자: ---IMAGE--- 아래에 작성
-    - 구성: 첫 줄 강렬한 제목(이모지X), 나머지 핵심 요약 7문장 이내.
+    - 구성:
+      1. 첫 줄: 강렬한 한글 제목. (이모지 X). **기사 핵심 수치(1400조, 2025년 등)는 제목에 반드시 포함.**
+      2. 나머지: 핵심 요약 문장 최대 7개 이내. **문장 시작에 오는 숫자(연도, 금액)는 절대 삭제하지 말 것.**
 
     [작성 규칙 3: 원천 소스 찾기]
     - 구분자: ---SOURCE--- 아래에 작성
@@ -240,7 +234,14 @@ def summarize_news(target_model, title, link, content_text=""):
                     image_lines = []
                     for line in image_raw.split('\n'):
                         clean_line = line.strip().replace("**", "").replace("##", "")
-                        clean_line = re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►\d\.]+\s*", "", clean_line)
+                        
+                        # ★ [수정] 중요: 숫자 데이터 보호를 위한 정교한 정규식
+                        # 1. 기호만 먼저 제거 (-, *, ✅ 등)
+                        clean_line = re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►]+\s*", "", clean_line)
+                        # 2. '숫자+점+공백' 형태(예: 1. )인 경우에만 숫자 제거 (목차 번호라고 판단)
+                        clean_line = re.sub(r"^\d+\.\s+", "", clean_line)
+                        # 3. 주의: 그냥 맨 앞이 숫자(예: 2025년, 1400조)인 경우는 건드리지 않음!
+                        
                         if clean_line: image_lines.append(clean_line)
                     
                     source_name = source_raw.split('\n')[0].strip()
@@ -310,7 +311,6 @@ if __name__ == "__main__":
                 else:
                     final_source_name = default_source_name
                 
-                # 이미지 생성 (날짜/계정 추가됨)
                 image_file = create_info_image(img_lines, final_source_name)
                 
                 try:
@@ -352,5 +352,4 @@ if __name__ == "__main__":
         else:
             print("새 뉴스 없음.")
         
-        # 유료니까 대기 시간 짧게! (2초)
         time.sleep(2)
