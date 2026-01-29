@@ -58,87 +58,83 @@ RSS_SOURCES = [
 ]
 
 # ==========================================
-# 4. 카드뉴스 이미지 생성 함수 (불렛포인트 직접 그리기)
+# 4. 카드뉴스 생성 함수 (16:9 와이드 비율)
 # ==========================================
 def create_info_image(text, source_name):
     try:
-        # 디자인 설정
-        width, height = 1080, 1080
-        background_color = (20, 20, 20) # 짙은 회색
-        text_color = (240, 240, 240)
+        # 16:9 와이드 비율 설정 (HD 표준)
+        width, height = 1200, 675 
+        background_color = (15, 15, 15) # 더 깊은 블랙 배경
+        text_color = (235, 235, 235)
         title_color = (255, 255, 255)
-        accent_color = (0, 190, 255) # 시안(Cyan) 색상
+        accent_color = (0, 175, 255) # 브랜드 컬러 (딥 시안)
         
         image = Image.new('RGB', (width, height), background_color)
         draw = ImageDraw.Draw(image)
         
         font_path = "font.ttf"
         try:
-            # 한글 폰트 크기 설정
-            title_font = ImageFont.truetype(font_path, 65) 
-            body_font = ImageFont.truetype(font_path, 40)
-            source_font = ImageFont.truetype(font_path, 30)
+            # 와이드 비율에 맞춘 폰트 크기 조정
+            title_font = ImageFont.truetype(font_path, 58) 
+            body_font = ImageFont.truetype(font_path, 34)
+            source_font = ImageFont.truetype(font_path, 26)
         except:
-            print("⚠️ 폰트 파일(font.ttf) 없음! 기본 폰트 사용")
+            print("⚠️ 폰트 파일 오류")
             return None
 
-        margin_x = 100 # 좌우 여백
-        current_y = 120 # 시작 높이
+        margin_x = 80 
+        current_y = 100 
         
-        # 1. 상단 출처 표시
-        draw.text((margin_x, 60), f"Market Radar | {source_name}", font=source_font, fill=accent_color)
+        # 1. 상단 워터마크
+        draw.text((margin_x, 45), f"Market Radar | {source_name}", font=source_font, fill=accent_color)
 
         lines = text.split('\n')
         for i, line in enumerate(lines):
             line = line.strip()
             if not line: continue
 
-            # --- [텍스트 정제] ---
-            # 1. 마크다운 제거 (**text**, ##text)
+            # 텍스트 클리닝 (마크다운 및 지저분한 기호 제거)
             line = line.replace("**", "").replace("##", "")
-            
-            # 2. 앞부분 특수문자 제거
             if i > 0 and not line.startswith(('$', '#')):
                  line = re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►\d\.]+\s*", "", line)
 
             # --- [그리기 로직] ---
             if i == 0: # 제목
-                wrapped_lines = textwrap.wrap(line, width=22)
+                # 가로가 길어져서 width를 32까지 늘림 (한글 잘림 방지)
+                wrapped_lines = textwrap.wrap(line, width=32)
                 for wl in wrapped_lines:
                     draw.text((margin_x, current_y), wl, font=title_font, fill=title_color)
-                    current_y += 85
+                    current_y += 75
                 
-                current_y += 40
-                # 구분선
-                draw.line([(margin_x, current_y), (width-margin_x, current_y)], fill=(80,80,80), width=3)
-                current_y += 60
+                current_y += 30
+                # 얇고 세련된 구분선
+                draw.line([(margin_x, current_y), (width-margin_x, current_y)], fill=(60, 60, 60), width=2)
+                current_y += 45
                 
-            else: # 본문 및 태그
+            else: # 본문
                 is_tag = line.startswith(('$', '#'))
-                
-                # 본문 줄바꿈 폭 (26자)
-                wrap_width = 26 
+                # 본문 가로폭도 48로 넉넉하게 설정
+                wrap_width = 48 
                 wrapped_lines = textwrap.wrap(line, width=wrap_width)
                 
                 for wl in wrapped_lines:
                     if not is_tag:
-                        # 네모 불렛 그리기
-                        bullet_size = 12
-                        bullet_y = current_y + 16
+                        # 세련된 사각형 불렛 (글자 높이에 맞춰 정렬)
+                        bullet_size = 10
                         draw.rectangle(
-                            [margin_x - 30, bullet_y, margin_x - 30 + bullet_size, bullet_y + bullet_size],
+                            [margin_x - 25, current_y + 14, margin_x - 25 + bullet_size, current_y + 14 + bullet_size],
                             fill=accent_color
                         )
                         fill_color = text_color
                     else:
-                        fill_color = accent_color # 태그는 하늘색
+                        fill_color = accent_color # 하단 태그 포인트 컬러
 
                     draw.text((margin_x, current_y), wl, font=body_font, fill=fill_color)
-                    current_y += 55
+                    current_y += 48
                 
-                current_y += 15
+                current_y += 10 # 줄간 여백
             
-            if current_y > height - 150: break
+            if current_y > height - 80: break
                 
         temp_filename = "temp_news_card.png"
         image.save(temp_filename)
@@ -148,7 +144,7 @@ def create_info_image(text, source_name):
         return None
 
 # ==========================================
-# 5. AI 요약 함수 (텍스트 정화 강화)
+# 5. AI 요약 함수 (본문 clean text 처리)
 # ==========================================
 def summarize_news(category, title, link):
     list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
@@ -171,25 +167,22 @@ def summarize_news(category, title, link):
     이 뉴스를 '카드뉴스'와 '트윗 본문'에 쓸 수 있도록 텍스트를 정리해줘.
     
     [작성 규칙]
-    1. 첫째 줄: 핵심 제목 (이모지 X, 마크다운 X, 순수 텍스트만)
+    1. 첫째 줄: 핵심 제목 (이모지/마크다운 금지)
     2. 본문:
-       - 4~5개의 핵심 문장으로 요약 (개조식)
-       - 문장 앞에 번호(1.)나 기호(-) 붙이지 마
+       - 4~5개의 핵심 문장 요약
+       - 문장 앞 기호 금지 (코드에서 처리함)
        - 구체적 수치($) 포함 필수
     3. 맨 아래줄: 관련 티커 ($TSLA 등) 및 해시태그 2개
-    4. 텍스트에 볼드체(**)나 기울임꼴(*) 같은 마크다운 절대 사용 금지.
+    4. 마크다운(**) 절대 사용 금지.
     """
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
-    
     data = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "safetySettings": [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-        ]
+        "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                          {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                          {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                          {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
     }
     headers = {'Content-Type': 'application/json'}
 
@@ -198,13 +191,8 @@ def summarize_news(category, title, link):
         if response.status_code == 200:
             text = response.json()['candidates'][0]['content']['parts'][0]['text']
             return text.replace("**", "").replace("##", "").strip()
-        else:
-            print(f"🚨 API 에러: {response.text}")
-            return None
-            
-    except Exception as e:
-        print(f"🚨 연결 에러: {e}")
         return None
+    except: return None
 
 # ==========================================
 # 6. 메인 실행
@@ -231,60 +219,41 @@ if __name__ == "__main__":
         
         if news and check_if_new(filename, news.link):
             print(f"✨ 뉴스 발견: {news.title}")
-            
             summary = summarize_news(category, news.title, news.link)
             
             if summary:
-                # 1. 이미지 생성
                 image_file = create_info_image(summary, source_name)
                 
                 try:
                     media_id = None
                     if image_file:
-                        print("🖼️ 카드뉴스 생성 완료")
                         media = api.media_upload(image_file)
                         media_id = media.media_id
                     
-                    # 2. 트윗 본문 작성
-                    formatted_summary_lines = []
+                    # 텍스트 본문 포맷팅 (카테고리 삭제, 제목부터 시작)
+                    formatted_lines = []
                     for i, line in enumerate(summary.split('\n')):
                         line = line.strip()
                         if not line: continue
-                        
-                        # 본문에만 체크 이모지 추가
                         if i > 0 and not line.startswith(('$', '#')):
-                             clean_line = re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►\d\.]+\s*", "", line)
-                             formatted_summary_lines.append(f"✅ {clean_line}")
+                             clean = re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►\d\.]+\s*", "", line)
+                             formatted_lines.append(f"✅ {clean}")
                         else:
-                             formatted_summary_lines.append(line)
+                             formatted_lines.append(line)
                     
-                    # ★ 수정됨: [category] 태그 삭제하고 제목부터 바로 시작
-                    final_tweet_text = "\n".join(formatted_summary_lines) + f"\n\n출처: {source_name}"
+                    final_text = "\n".join(formatted_lines) + f"\n\n출처: {source_name}"
                     
-                    if len(final_tweet_text) > 12000:
-                        final_tweet_text = final_tweet_text[:11995] + "..."
-
-                    if media_id:
-                        response = client.create_tweet(text=final_tweet_text, media_ids=[media_id])
-                    else:
-                        response = client.create_tweet(text=final_tweet_text)
-                        
+                    # 트윗 전송
+                    response = client.create_tweet(text=final_text, media_ids=[media_id] if media_id else None)
                     tweet_id = response.data['id']
-                    print("✅ 메인 트윗(이미지+본문) 업로드 성공!")
                     
-                    reply_text = f"🔗 원문 기사 보러가기:\n{news.link}"
-                    client.create_tweet(text=reply_text, in_reply_to_tweet_id=tweet_id)
-                    print("✅ 링크 댓글 달기 성공!")
+                    # 댓글 링크
+                    client.create_tweet(text=f"🔗 원문 기사:\n{news.link}", in_reply_to_tweet_id=tweet_id)
+                    print("✅ 업로드 완료!")
 
                     save_current_link(filename, news.link)
-                    
-                    if image_file and os.path.exists(image_file):
-                        os.remove(image_file)
+                    if image_file and os.path.exists(image_file): os.remove(image_file)
                     
                 except Exception as e:
                     print(f"❌ 트윗 실패: {e}")
-            else:
-                print("🚨 AI 요약 실패로 건너뜀")
-        else:
-            print("새 뉴스 없음.")
         time.sleep(2)
