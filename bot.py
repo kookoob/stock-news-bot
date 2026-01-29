@@ -6,7 +6,7 @@ import sys
 import time
 import textwrap
 import re
-import shutil # ★ 이미지 다운로드를 위해 추가
+import shutil
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageDraw, ImageFont
@@ -48,31 +48,79 @@ except Exception as e:
 # 3. 뉴스 소스 리스트
 # ==========================================
 RSS_SOURCES = [
-    # 기존 주식/경제 뉴스
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
     ("미국주식(금융)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "last_link_us_finance.txt", "CNBC"),
     ("미국주식(기술)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", "last_link_us_tech.txt", "CNBC"),
+    # 한국 뉴스 (운영 시간 제한 적용)
     ("한국주식(한경)", "https://www.hankyung.com/feed/finance", "last_link_kr.txt", "한국경제"),
     ("미국주식(Yahoo)", "https://finance.yahoo.com/news/rssindex", "last_link_yahoo.txt", "Yahoo Finance"),
     ("미국주식(Tech)", "https://techcrunch.com/feed/", "last_link_techcrunch.txt", "TechCrunch"),
+    # 한국 뉴스 (운영 시간 제한 적용)
     ("한국주식(매경)", "https://www.mk.co.kr/rss/50200011/", "last_link_mk.txt", "매일경제"),
     ("미국주식(WSJ_Opinion)", "https://feeds.content.dowjones.io/public/rss/RSSOpinion", "last_link_wsj_op.txt", "WSJ"),
     ("미국주식(WSJ_Market)", "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", "last_link_wsj_mkt.txt", "WSJ"),
     ("미국주식(WSJ_Economy)", "https://feeds.content.dowjones.io/public/rss/socialeconomyfeed", "last_link_wsj_eco.txt", "WSJ"),
     ("속보(텔레그램)", "https://rsshub.app/telegram/channel/bornlupin", "last_link_bornlupin.txt", "Telegram"),
-    
-    # ★ [추가] 연예 뉴스 (SBS)
+    # 한국 뉴스 (운영 시간 제한 적용)
     ("연예뉴스(SBS)", "https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=14&plink=RSSREADER", "last_link_sbs_ent.txt", "SBS연예")
 ]
 
-MAX_HISTORY = 300
+# ★ [수정] 기억할 히스토리 개수 (500개로 상향) -> 중복 방지 강화
+MAX_HISTORY = 500
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
 # ==========================================
-# 4. 이미지 관련 함수들 (생성 / 추출 / 다운로드)
+# 4. 시간 제어 함수
 # ==========================================
 
-# (A) 기존 카드뉴스 생성 함수
+# (A) 운영 시간 체크 (평일 06:00 ~ 21:00)
+def is_operating_time(category):
+    target_keywords = ["한경", "매경", "연예뉴스", "한국주식"]
+    if not any(keyword in category for keyword in target_keywords):
+        return True
+
+    KST = timezone(timedelta(hours=9))
+    now_kst = datetime.now(KST)
+    
+    # 주말 체크
+    if now_kst.weekday() >= 5: 
+        print(f"💤 [휴무] 주말입니다. ({category})")
+        return False
+    # 공휴일 체크 (예시)
+    fixed_holidays = ["01-01", "03-01", "05-05", "06-06", "08-15", "10-03", "10-09", "12-25"]
+    if now_kst.strftime("%m-%d") in fixed_holidays:
+        print(f"💤 [휴무] 공휴일입니다. ({category})")
+        return False
+
+    # 시간 체크 (06시 ~ 21시)
+    current_hour = now_kst.hour
+    if 6 <= current_hour < 21:
+        return True
+    else:
+        print(f"💤 [퇴근] 운영 시간이 아닙니다 (06:00~21:00). 현재: {current_hour}시 ({category})")
+        return False
+
+# (B) ★ [수정] 12시간 이내 기사인지 체크
+def is_recent_news(entry):
+    if not hasattr(entry, 'published_parsed') or not entry.published_parsed:
+        return True
+        
+    try:
+        published_time = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+        current_time = datetime.now(timezone.utc)
+        time_diff = current_time - published_time
+        
+        # ★ 12시간 경과 체크 (기존 24시간 -> 12시간으로 단축)
+        if time_diff > timedelta(hours=12):
+            print(f"⏳ [오래된 뉴스] 12시간 경과로 스킵: {time_diff}")
+            return False
+        return True
+    except:
+        return True
+
+# ==========================================
+# 5. 이미지 및 AI 관련 함수
+# ==========================================
 def create_info_image(text_lines, source_name):
     try:
         width, height = 1200, 675 
@@ -80,36 +128,27 @@ def create_info_image(text_lines, source_name):
         text_color = (235, 235, 235)
         title_color = (255, 255, 255)
         accent_color = (0, 190, 255)
-        
         image = Image.new('RGB', (width, height), background_color)
         draw = ImageDraw.Draw(image)
-        
         font_path = "font.ttf"
         try:
             title_font = ImageFont.truetype(font_path, 54) 
             body_font = ImageFont.truetype(font_path, 32)
             source_font = ImageFont.truetype(font_path, 24)
-        except:
-            print("⚠️ 폰트 파일 오류")
-            return None
+        except: return None
 
         margin_x = 80       
         header_y = 45
-        
-        if source_name:
-            header_text = f"Market Radar | {source_name}"
-        else:
-            header_text = "Market Radar"
+        if source_name: header_text = f"Market Radar | {source_name}"
+        else: header_text = "Market Radar"
         draw.text((margin_x, header_y), header_text, font=source_font, fill=accent_color)
         draw.text((margin_x, header_y + 30), "@marketradar0", font=source_font, fill=text_color)
 
         KST = timezone(timedelta(hours=9))
         now = datetime.now(KST)
         date_str = f"{now.year % 100}년 {now.month}월 {now.day}일"
-        try:
-            date_width = draw.textlength(date_str, font=source_font)
-        except AttributeError:
-            date_width = source_font.getsize(date_str)[0]
+        try: date_width = draw.textlength(date_str, font=source_font)
+        except AttributeError: date_width = source_font.getsize(date_str)[0]
         draw.text((width - margin_x - date_width, header_y), date_str, font=source_font, fill=text_color)
 
         current_y = 140     
@@ -127,45 +166,30 @@ def create_info_image(text_lines, source_name):
             else: 
                 bullet_size = 10
                 bullet_y = current_y + 12
-                draw.rectangle(
-                    [margin_x - 25, bullet_y, margin_x - 25 + bullet_size, bullet_y + bullet_size],
-                    fill=accent_color
-                )
+                draw.rectangle([margin_x - 25, bullet_y, margin_x - 25 + bullet_size, bullet_y + bullet_size], fill=accent_color)
                 wrapped_lines = textwrap.wrap(line, width=35)
                 for wl in wrapped_lines:
                     draw.text((margin_x, current_y), wl, font=body_font, fill=text_color)
                     current_y += 42
                 current_y += 10
             if current_y > height - 50: break 
-        
         temp_filename = "temp_card_16_9.png"
         image.save(temp_filename)
         return temp_filename
-    except Exception as e:
-        print(f"❌ 이미지 생성 에러: {e}")
-        return None
+    except: return None
 
-# (B) RSS에서 이미지 URL 추출 함수 (연예뉴스용)
 def extract_image_url(entry):
-    # 1. media_content 확인 (가장 흔함)
     if 'media_content' in entry:
         media = entry.media_content[0]
         if 'url' in media: return media['url']
-    
-    # 2. links 확인 (enclosure 타입)
     if 'links' in entry:
         for link in entry.links:
-            if link.get('rel') == 'enclosure' and 'image' in link.get('type', ''):
-                return link['href']
-                
-    # 3. 본문(description)에서 img 태그 정규식으로 찾기 (최후의 수단)
+            if link.get('rel') == 'enclosure' and 'image' in link.get('type', ''): return link['href']
     if 'description' in entry:
         urls = re.findall(r'<img[^>]+src="([^">]+)"', entry.description)
         if urls: return urls[0]
-        
     return None
 
-# (C) 이미지 다운로드 함수
 def download_image(url):
     try:
         response = requests.get(url, stream=True, timeout=10)
@@ -174,13 +198,9 @@ def download_image(url):
             with open(filename, 'wb') as out_file:
                 shutil.copyfileobj(response.raw, out_file)
             return filename
-    except Exception as e:
-        print(f"❌ 이미지 다운로드 실패: {e}")
+    except: pass
     return None
 
-# ==========================================
-# 5. AI 모델 찾기 & 요약 함수
-# ==========================================
 def get_working_model():
     print("🤖 사용 가능한 AI 모델 검색 중...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
@@ -203,43 +223,21 @@ def summarize_news(target_model, title, link, content_text=""):
     뉴스 제목: {title}
     뉴스 링크: {link}
     뉴스 내용(Raw): {content_text}
-
-    위 내용을 분석해서 트위터 본문, 인포그래픽 텍스트, 그리고 '원천 소스 출처'를 찾아줘.
-
+    분석 후 트위터 본문, 인포그래픽 텍스트, 원천 소스를 찾아줘.
     [작성 규칙 1: 트위터 본문]
-    - 구분자: ---BODY--- 아래에 작성
-    - 형식: X 프리미엄용 장문 상세 요약.
-    - 스타일: 한국어 번역 필수. 명사형 종결이나 음슴체(~함, ~임). 존댓말 금지.
+    - ---BODY--- 아래 작성. X 프리미엄용 장문 상세 요약. 한국어 번역 필수. 명사형 종결/음슴체.
     - 구성: 제목(이모지+한글), 상세 내용(✅ 체크포인트), 하단 티커($)+해시태그(#)
-
-    [작성 규칙 2: 인포그래픽 이미지 (연예뉴스일 경우 무시됨)]
-    - 구분자: ---IMAGE--- 아래에 작성
-    - 구성: 첫 줄 강렬한 제목(숫자 포함), 나머지 핵심 요약 7문장 이내.
-
-    [작성 규칙 3: 원천 소스 찾기]
-    - 구분자: ---SOURCE--- 아래에 작성
-    - 규칙 A: 링크가 있다면 해당 언론사 이름(Bloomberg, WSJ 등).
-    - 규칙 B: 링크가 없다면 본문에서 'Source:', '출처:', 'via' 뒤에 나오는 기관명.
-    - 규칙 C: 링크도 없고 텍스트 언급도 없으면 'Unknown'이라고 적어. 텔레그램 채널명은 적지 마.
-
-    [금지사항]
-    - 마크다운(**, ##) 사용 금지.
+    [작성 규칙 2: 인포그래픽 이미지 (연예뉴스 무시)]
+    - ---IMAGE--- 아래 작성.
+    - 구성: 첫 줄 강렬한 한글 제목(핵심 수치 포함, 이모지X). 나머지 핵심 요약 7문장 이내.
+    [작성 규칙 3: 원천 소스]
+    - ---SOURCE--- 아래 작성. 언론사 이름만. 없으면 Unknown.
+    [금지사항] 마크다운(**, ##) 금지.
     """
-
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
-    data = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "safetySettings": [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-        ]
-    }
+    data = {"contents": [{"parts": [{"text": prompt}]}], "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]}
     headers = {'Content-Type': 'application/json'}
-
-    max_retries = 3
-    for attempt in range(max_retries):
+    for _ in range(3):
         try:
             response = requests.post(url, headers=headers, json=data)
             if response.status_code == 200:
@@ -248,60 +246,39 @@ def summarize_news(target_model, title, link, content_text=""):
                     parts = full_text.split("---IMAGE---")
                     body_raw = parts[0].replace("---BODY---", "").strip()
                     remaining = parts[1]
-                    
                     if "---SOURCE---" in remaining:
                         img_parts = remaining.split("---SOURCE---")
                         image_raw = img_parts[0].strip()
                         source_raw = img_parts[1].strip()
-                    else:
-                        image_raw = remaining.strip()
-                        source_raw = "Unknown" 
-
+                    else: image_raw = remaining.strip(); source_raw = "Unknown"
                     body_part = body_raw.replace("**", "").replace("##", "")
-                    image_lines = []
-                    for line in image_raw.split('\n'):
-                        clean_line = line.strip().replace("**", "").replace("##", "")
-                        clean_line = re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►]+\s*", "", clean_line)
-                        clean_line = re.sub(r"^\d+\.\s+", "", clean_line)
-                        if clean_line: image_lines.append(clean_line)
-                    
+                    image_lines = [re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►]+\s*", "", re.sub(r"^\d+\.\s+", "", l.strip().replace("**", "").replace("##", ""))) for l in image_raw.split('\n') if l.strip()]
                     source_name = source_raw.split('\n')[0].strip()
-                    if "Unknown" in source_name or len(source_name) > 20: source_name = None 
-                    
+                    if "Unknown" in source_name or len(source_name) > 20: source_name = None
                     return body_part, image_lines, source_name
-                else: return None, None, None
-            elif response.status_code == 429:
-                print(f"⏳ API 한도 초과! 60초 대기... ({attempt+1}/{max_retries})")
-                time.sleep(60)
-                continue
-            else:
-                print(f"🚨 API 에러: {response.text}")
                 return None, None, None
-        except Exception as e:
-            print(f"🚨 연결 에러: {e}")
-            return None, None, None
+            elif response.status_code == 429: time.sleep(60); continue
+            else: return None, None, None
+        except: return None, None, None
     return None, None, None
 
 # ==========================================
-# 6. 기록 관리 함수
+# 6. 기록 관리 (최대 500개 유지 & 중복 검사)
 # ==========================================
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
-    with open(filename, 'r', encoding='utf-8') as f:
-        return [line.strip() for line in f.readlines()]
+    with open(filename, 'r', encoding='utf-8') as f: return [line.strip() for line in f.readlines()]
 
 def save_processed_link(filename, link):
     links = get_processed_links(filename)
     if link not in links:
         links.append(link)
         if len(links) > MAX_HISTORY: links = links[-MAX_HISTORY:]
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write("\n".join(links))
+        with open(filename, 'w', encoding='utf-8') as f: f.write("\n".join(links))
 
 def get_global_titles():
     if not os.path.exists(GLOBAL_TITLE_FILE): return []
-    with open(GLOBAL_TITLE_FILE, 'r', encoding='utf-8') as f:
-        return [line.strip() for line in f.readlines()]
+    with open(GLOBAL_TITLE_FILE, 'r', encoding='utf-8') as f: return [line.strip() for line in f.readlines()]
 
 def save_global_title(title):
     titles = get_global_titles()
@@ -309,20 +286,20 @@ def save_global_title(title):
     if clean_title not in titles:
         titles.append(clean_title)
         if len(titles) > MAX_HISTORY: titles = titles[-MAX_HISTORY:]
-        with open(GLOBAL_TITLE_FILE, 'w', encoding='utf-8') as f:
-            f.write("\n".join(titles))
+        with open(GLOBAL_TITLE_FILE, 'w', encoding='utf-8') as f: f.write("\n".join(titles))
 
+# ★ 출처가 달라도 내용이 비슷하면 중복 처리
 def is_similar_title(new_title, existing_titles):
     clean_new = re.sub(r'\s+', ' ', new_title).strip()
     for old_title in existing_titles:
-        ratio = SequenceMatcher(None, clean_new, old_title).ratio()
-        if ratio > 0.6: 
-            print(f"🚫 중복 감지 (유사도 {ratio:.2f}): {clean_new} <-> {old_title}")
+        # 유사도 60% 이상이면 중복으로 간주
+        if SequenceMatcher(None, clean_new, old_title).ratio() > 0.6: 
+            print(f"🚫 중복 감지 (유사도): {clean_new} <-> {old_title}")
             return True
     return False
 
 # ==========================================
-# 7. 메인 실행 로직 (★ 하이브리드 모드)
+# 7. 메인 실행 로직
 # ==========================================
 if __name__ == "__main__":
     current_model = get_working_model()
@@ -330,29 +307,31 @@ if __name__ == "__main__":
     
     for category, rss_url, filename, default_source_name in RSS_SOURCES:
         print(f"\n--- [{category}] ---")
+        
+        # 1. 운영 시간 체크
+        if not is_operating_time(category):
+            continue
+
         try:
             feed = feedparser.parse(rss_url)
-            if not feed.entries:
-                print("뉴스 없음")
-                continue
+            if not feed.entries: print("뉴스 없음"); continue
             news = feed.entries[0]
-        except:
-            print("RSS 파싱 실패")
-            continue
+        except: print("RSS 파싱 실패"); continue
         
-        processed_links = get_processed_links(filename)
-        if news.link in processed_links:
-            print("이미 처리된 링크입니다.")
+        # 2. 시간 제한 체크 (12시간)
+        if not is_recent_news(news):
             continue
+
+        processed_links = get_processed_links(filename)
+        if news.link in processed_links: print("이미 처리된 링크"); continue
 
         check_title = news.title if news.title else (news.description[:50] if hasattr(news, 'description') else "")
+        
+        # 3. 전역 중복 검사 (출처 달라도 비슷하면 스킵)
         if is_similar_title(check_title, global_titles):
-            print("패스: 중복 내용.")
-            save_processed_link(filename, news.link)
-            continue
+            print("패스: 다른 소스에서 이미 다룬 내용."); save_processed_link(filename, news.link); continue
 
         print(f"✨ 새 뉴스 발견: {news.title}")
-        
         real_link = news.link
         content_for_ai = ""
         if hasattr(news, 'description'):
@@ -364,58 +343,30 @@ if __name__ == "__main__":
         body_text, img_lines, detected_source = summarize_news(current_model, news.title, real_link, content_for_ai)
         
         if body_text and img_lines:
-            if "텔레그램" in category:
-                final_source_name = detected_source 
-            else:
-                final_source_name = default_source_name
-            
+            final_source_name = detected_source if "텔레그램" in category else default_source_name
             image_file = None
-            
-            # ★ [분기점] 연예 뉴스는 원본 이미지 다운로드, 나머지는 카드뉴스 생성
             if "연예" in category:
-                print("📸 연예 뉴스 감지: 원본 이미지 추출 시도...")
+                print("📸 연예 뉴스: 원본 이미지 사용")
                 img_url = extract_image_url(news)
-                if img_url:
-                    image_file = download_image(img_url)
-                    if image_file: print("✅ 원본 이미지 다운로드 성공")
-                else:
-                    print("⚠️ 원본 이미지를 찾을 수 없음 (텍스트만 업로드 예정)")
-            else:
-                # 일반 뉴스는 기존대로 카드뉴스 생성
-                image_file = create_info_image(img_lines, final_source_name)
+                if img_url: image_file = download_image(img_url)
+            else: image_file = create_info_image(img_lines, final_source_name)
             
             try:
                 media_id = None
-                if image_file:
-                    print(f"📤 미디어 업로드 중...")
-                    media = api.media_upload(image_file)
-                    media_id = media.media_id
-                
+                if image_file: media = api.media_upload(image_file); media_id = media.media_id
                 final_tweet = body_text if not final_source_name else f"{body_text}\n\n출처: {final_source_name}"
                 if len(final_tweet) > 12000: final_tweet = final_tweet[:11995] + "..."
-
-                if media_id:
-                    response = client.create_tweet(text=final_tweet, media_ids=[media_id])
-                else:
-                    response = client.create_tweet(text=final_tweet)
-                    
+                if media_id: response = client.create_tweet(text=final_tweet, media_ids=[media_id])
+                else: response = client.create_tweet(text=final_tweet)
                 tweet_id = response.data['id']
-                print("✅ 메인 트윗 업로드 성공!")
+                print("✅ 업로드 성공")
+                client.create_tweet(text=f"🔗 원문 기사:\n{real_link}", in_reply_to_tweet_id=tweet_id)
                 
-                reply_text = f"🔗 원문 기사:\n{real_link}"
-                client.create_tweet(text=reply_text, in_reply_to_tweet_id=tweet_id)
-                print("✅ 링크 댓글 완료!")
-
+                # 성공 시 기록 (500개까지 유지)
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
-                
-            except Exception as e:
-                print(f"❌ 트윗 전송 실패: {e}")
-            
-            if image_file and os.path.exists(image_file):
-                os.remove(image_file)
-        else:
-            print("🚨 AI 요약 실패")
-    
+            except Exception as e: print(f"❌ 전송 실패: {e}")
+            if image_file and os.path.exists(image_file): os.remove(image_file)
+        else: print("🚨 요약 실패")
         time.sleep(2)
