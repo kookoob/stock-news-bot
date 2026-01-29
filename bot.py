@@ -35,7 +35,7 @@ except:
     print("⚠️ 트위터 클라이언트 생성 오류")
 
 # ==========================================
-# 3. 뉴스 소스 설정 (매일경제 링크 교체됨)
+# 3. 뉴스 소스 설정 (WSJ 포함 최신 상태 유지)
 # ==========================================
 RSS_SOURCES = [
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
@@ -44,13 +44,14 @@ RSS_SOURCES = [
     ("한국주식(한경)", "https://www.hankyung.com/feed/finance", "last_link_kr.txt", "한국경제"),
     ("미국주식(Yahoo)", "https://finance.yahoo.com/news/rssindex", "last_link_yahoo.txt", "Yahoo Finance"),
     ("미국주식(Tech)", "https://techcrunch.com/feed/", "last_link_techcrunch.txt", "TechCrunch"),
-    
-    # [수정됨] 매일경제 RSS 링크 교체 (30100041 -> 50200011)
-    ("한국주식(매경)", "https://www.mk.co.kr/rss/50200011/", "last_link_mk.txt", "매일경제")
+    ("한국주식(매경)", "https://www.mk.co.kr/rss/50200011/", "last_link_mk.txt", "매일경제"),
+    ("미국주식(WSJ_Opinion)", "https://feeds.content.dowjones.io/public/rss/RSSOpinion", "last_link_wsj_op.txt", "WSJ"),
+    ("미국주식(WSJ_Market)", "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", "last_link_wsj_mkt.txt", "WSJ"),
+    ("미국주식(WSJ_Economy)", "https://feeds.content.dowjones.io/public/rss/socialeconomyfeed", "last_link_wsj_eco.txt", "WSJ")
 ]
 
 # ==========================================
-# 4. AI 요약 함수 (장문 프리미엄 모드)
+# 4. AI 요약 함수 (사용자 정의 규칙 적용)
 # ==========================================
 def summarize_news(category, title, link):
     list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
@@ -66,7 +67,7 @@ def summarize_news(category, title, link):
                     break
     except: pass
 
-    # AI 프롬프트: 상세 분석 및 장문 작성 요구
+    # ★ 사용자 정의 프롬프트 적용 완료
     prompt = f"""
     뉴스 제목: {title}
     뉴스 링크: {link}
@@ -154,5 +155,3 @@ if __name__ == "__main__":
         else:
             print("새 뉴스 없음.")
         time.sleep(2)
-
-
