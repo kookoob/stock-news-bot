@@ -51,56 +51,27 @@ RSS_SOURCES = [
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
     ("미국주식(금융)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "last_link_us_finance.txt", "CNBC"),
     ("미국주식(기술)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", "last_link_us_tech.txt", "CNBC"),
-    # 한국 뉴스 (운영 시간 제한 적용)
     ("한국주식(한경)", "https://www.hankyung.com/feed/finance", "last_link_kr.txt", "한국경제"),
     ("미국주식(Yahoo)", "https://finance.yahoo.com/news/rssindex", "last_link_yahoo.txt", "Yahoo Finance"),
     ("미국주식(Tech)", "https://techcrunch.com/feed/", "last_link_techcrunch.txt", "TechCrunch"),
-    # 한국 뉴스 (운영 시간 제한 적용)
     ("한국주식(매경)", "https://www.mk.co.kr/rss/50200011/", "last_link_mk.txt", "매일경제"),
     ("미국주식(WSJ_Opinion)", "https://feeds.content.dowjones.io/public/rss/RSSOpinion", "last_link_wsj_op.txt", "WSJ"),
     ("미국주식(WSJ_Market)", "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", "last_link_wsj_mkt.txt", "WSJ"),
     ("미국주식(WSJ_Economy)", "https://feeds.content.dowjones.io/public/rss/socialeconomyfeed", "last_link_wsj_eco.txt", "WSJ"),
     ("속보(텔레그램)", "https://rsshub.app/telegram/channel/bornlupin", "last_link_bornlupin.txt", "Telegram"),
-    # 한국 뉴스 (운영 시간 제한 적용)
-    ("연예뉴스(SBS)", "https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=14&plink=RSSREADER", "last_link_sbs_ent.txt", "SBS연예")
+    
+    # ★ [변경] 요청하신 연합뉴스(yna.co.kr) 경제면 추가 (연예뉴스 제거됨)
+    ("한국주식(연합)", "https://www.yna.co.kr/rss/economy.xml", "last_link_yna.txt", "연합뉴스")
 ]
 
-# ★ [수정] 기억할 히스토리 개수 (1000개로 상향)
 MAX_HISTORY = 1000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
 # ==========================================
-# 4. 시간 제어 함수
+# 4. 시간 제어 함수 (6시간 이내 기사만)
 # ==========================================
+# ※ 운영 시간 제한(06~21시) 함수는 요청에 따라 삭제되었습니다.
 
-# (A) 운영 시간 체크 (평일 06:00 ~ 21:00)
-def is_operating_time(category):
-    target_keywords = ["한경", "매경", "연예뉴스", "한국주식"]
-    if not any(keyword in category for keyword in target_keywords):
-        return True
-
-    KST = timezone(timedelta(hours=9))
-    now_kst = datetime.now(KST)
-    
-    # 주말 체크
-    if now_kst.weekday() >= 5: 
-        print(f"💤 [휴무] 주말입니다. ({category})")
-        return False
-    # 공휴일 체크 (예시)
-    fixed_holidays = ["01-01", "03-01", "05-05", "06-06", "08-15", "10-03", "10-09", "12-25"]
-    if now_kst.strftime("%m-%d") in fixed_holidays:
-        print(f"💤 [휴무] 공휴일입니다. ({category})")
-        return False
-
-    # 시간 체크 (06시 ~ 21시)
-    current_hour = now_kst.hour
-    if 6 <= current_hour < 21:
-        return True
-    else:
-        print(f"💤 [퇴근] 운영 시간이 아닙니다 (06:00~21:00). 현재: {current_hour}시 ({category})")
-        return False
-
-# (B) ★ [수정] 6시간 이내 기사인지 체크
 def is_recent_news(entry):
     if not hasattr(entry, 'published_parsed') or not entry.published_parsed:
         return True
@@ -110,7 +81,7 @@ def is_recent_news(entry):
         current_time = datetime.now(timezone.utc)
         time_diff = current_time - published_time
         
-        # ★ 6시간 경과 체크 (기존 12시간 -> 6시간으로 단축)
+        # 6시간 경과 체크
         if time_diff > timedelta(hours=6):
             print(f"⏳ [오래된 뉴스] 6시간 경과로 스킵: {time_diff}")
             return False
@@ -227,7 +198,7 @@ def summarize_news(target_model, title, link, content_text=""):
     [작성 규칙 1: 트위터 본문]
     - ---BODY--- 아래 작성. X 프리미엄용 장문 상세 요약. 한국어 번역 필수. 명사형 종결/음슴체.
     - 구성: 제목(이모지+한글), 상세 내용(✅ 체크포인트), 하단 티커($)+해시태그(#)
-    [작성 규칙 2: 인포그래픽 이미지 (연예뉴스 무시)]
+    [작성 규칙 2: 인포그래픽 이미지]
     - ---IMAGE--- 아래 작성.
     - 구성: 첫 줄 강렬한 한글 제목(핵심 수치 포함, 이모지X). 나머지 핵심 요약 7문장 이내.
     [작성 규칙 3: 원천 소스]
@@ -292,7 +263,6 @@ def save_global_title(title):
 def is_similar_title(new_title, existing_titles):
     clean_new = re.sub(r'\s+', ' ', new_title).strip()
     for old_title in existing_titles:
-        # 유사도 60% 이상이면 중복으로 간주
         if SequenceMatcher(None, clean_new, old_title).ratio() > 0.6: 
             print(f"🚫 중복 감지 (유사도): {clean_new} <-> {old_title}")
             return True
@@ -308,9 +278,7 @@ if __name__ == "__main__":
     for category, rss_url, filename, default_source_name in RSS_SOURCES:
         print(f"\n--- [{category}] ---")
         
-        # 1. 운영 시간 체크
-        if not is_operating_time(category):
-            continue
+        # 운영 시간 체크 함수 삭제됨 (24시간 가동)
 
         try:
             feed = feedparser.parse(rss_url)
@@ -318,7 +286,7 @@ if __name__ == "__main__":
             news = feed.entries[0]
         except: print("RSS 파싱 실패"); continue
         
-        # 2. 시간 제한 체크 (6시간)
+        # 시간 제한 체크 (6시간)
         if not is_recent_news(news):
             continue
 
@@ -327,7 +295,7 @@ if __name__ == "__main__":
 
         check_title = news.title if news.title else (news.description[:50] if hasattr(news, 'description') else "")
         
-        # 3. 전역 중복 검사 (출처 달라도 비슷하면 스킵)
+        # 전역 중복 검사
         if is_similar_title(check_title, global_titles):
             print("패스: 다른 소스에서 이미 다룬 내용."); save_processed_link(filename, news.link); continue
 
@@ -344,12 +312,9 @@ if __name__ == "__main__":
         
         if body_text and img_lines:
             final_source_name = detected_source if "텔레그램" in category else default_source_name
-            image_file = None
-            if "연예" in category:
-                print("📸 연예 뉴스: 원본 이미지 사용")
-                img_url = extract_image_url(news)
-                if img_url: image_file = download_image(img_url)
-            else: image_file = create_info_image(img_lines, final_source_name)
+            
+            # 연예 뉴스 로직이 제거되었으므로 항상 카드뉴스 생성
+            image_file = create_info_image(img_lines, final_source_name)
             
             try:
                 media_id = None
@@ -362,7 +327,6 @@ if __name__ == "__main__":
                 print("✅ 업로드 성공")
                 client.create_tweet(text=f"🔗 원문 기사:\n{real_link}", in_reply_to_tweet_id=tweet_id)
                 
-                # 성공 시 기록 (1000개까지 유지)
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
