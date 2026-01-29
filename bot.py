@@ -6,6 +6,8 @@ import sys
 import time
 import textwrap
 import re
+# ★ 날짜/시간 관련 모듈 추가
+from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageDraw, ImageFont
 
 # ==========================================
@@ -59,7 +61,7 @@ RSS_SOURCES = [
 ]
 
 # ==========================================
-# 4. 카드뉴스 생성 함수
+# 4. 카드뉴스 생성 함수 (날짜/계정 추가)
 # ==========================================
 def create_info_image(text_lines, source_name):
     try:
@@ -82,20 +84,44 @@ def create_info_image(text_lines, source_name):
             return None
 
         margin_x = 80       
-        current_y = 100     
         
+        # --- [상단 헤더 영역 디자인] ---
+        header_y = 45
+        
+        # 1. 출처 표시 (좌측 상단, 하늘색 포인트)
         if source_name:
             header_text = f"Market Radar | {source_name}"
         else:
             header_text = "Market Radar"
+        draw.text((margin_x, header_y), header_text, font=source_font, fill=accent_color)
+        
+        # 2. 트위터 계정 표시 (출처 바로 아래, 흰색)
+        draw.text((margin_x, header_y + 30), "@marketradar0", font=source_font, fill=text_color)
+
+        # 3. 날짜 표시 (우측 상단, 한국 시간 기준)
+        KST = timezone(timedelta(hours=9)) # 한국 표준시 설정
+        now = datetime.now(KST)
+        date_str = f"{now.year % 100}년 {now.month}월 {now.day}일" # "26년 1월 29일" 형식
+
+        # 우측 정렬을 위해 텍스트 너비 계산
+        try:
+            # Pillow 최신 버전
+            date_width = draw.textlength(date_str, font=source_font)
+        except AttributeError:
+            # Pillow 구버전 호환
+            date_width = source_font.getsize(date_str)[0]
             
-        draw.text((margin_x, 45), header_text, font=source_font, fill=accent_color)
+        draw.text((width - margin_x - date_width, header_y), date_str, font=source_font, fill=text_color)
+
+        # --- [본문 영역 디자인] ---
+        # 헤더가 두 줄이 되었으므로 시작 위치를 조금 더 아래로 조정
+        current_y = 140     
 
         for i, line in enumerate(text_lines):
             line = line.strip().replace("**", "").replace("##", "")
             if not line: continue
 
-            if i == 0: 
+            if i == 0: # 제목
                 wrapped_lines = textwrap.wrap(line, width=32)
                 for wl in wrapped_lines:
                     draw.text((margin_x, current_y), wl, font=title_font, fill=title_color)
@@ -103,7 +129,7 @@ def create_info_image(text_lines, source_name):
                 current_y += 25
                 draw.line([(margin_x, current_y), (width-margin_x, current_y)], fill=(80, 80, 80), width=2)
                 current_y += 45
-            else: 
+            else: # 본문
                 bullet_size = 10
                 bullet_y = current_y + 12
                 draw.rectangle(
@@ -146,7 +172,7 @@ def get_working_model():
     return "gemini-1.5-flash"
 
 # ==========================================
-# 6. AI 요약 함수 (모델명 인자로 받음)
+# 6. AI 요약 함수
 # ==========================================
 def summarize_news(target_model, title, link, content_text=""):
     prompt = f"""
@@ -256,7 +282,6 @@ def save_current_link(last_link_file, current_link):
         f.write(current_link)
 
 if __name__ == "__main__":
-    # ★ 시작할 때 모델을 딱 한 번만 찾음 (API 절약)
     current_model = get_working_model()
     
     for category, rss_url, filename, default_source_name in RSS_SOURCES:
@@ -277,7 +302,6 @@ if __name__ == "__main__":
                         real_link = urls[0]
                         print(f"🔗 텔레그램 원문 링크 추출됨: {real_link}")
 
-            # ★ 찾은 모델을 인자로 전달
             body_text, img_lines, detected_source = summarize_news(current_model, news.title, real_link, content_for_ai)
             
             if body_text and img_lines:
@@ -286,12 +310,13 @@ if __name__ == "__main__":
                 else:
                     final_source_name = default_source_name
                 
+                # 이미지 생성 (날짜/계정 추가됨)
                 image_file = create_info_image(img_lines, final_source_name)
                 
                 try:
                     media_id = None
                     if image_file:
-                        print(f"🖼️ 카드뉴스 생성 (출처표기: {final_source_name if final_source_name else '없음'})")
+                        print(f"🖼️ 카드뉴스 생성 완료 (출처: {final_source_name if final_source_name else '없음'})")
                         media = api.media_upload(image_file)
                         media_id = media.media_id
                     
@@ -327,4 +352,5 @@ if __name__ == "__main__":
         else:
             print("새 뉴스 없음.")
         
-        time.sleep(10)
+        # 유료니까 대기 시간 짧게! (2초)
+        time.sleep(2)
