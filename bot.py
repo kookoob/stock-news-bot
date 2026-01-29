@@ -6,7 +6,7 @@ import sys
 import time
 import textwrap
 import re
-from difflib import SequenceMatcher  # ★ 유사도 검사를 위한 도구
+from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageDraw, ImageFont
 
@@ -60,8 +60,8 @@ RSS_SOURCES = [
     ("속보(텔레그램)", "https://rsshub.app/telegram/channel/bornlupin", "last_link_bornlupin.txt", "Telegram")
 ]
 
-# ★ [설정] 기억할 히스토리 개수 (100개)
-MAX_HISTORY = 100
+# ★ [수정] 기억할 히스토리 개수 (300개로 상향)
+MAX_HISTORY = 300
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
 # ==========================================
@@ -254,10 +254,9 @@ def summarize_news(target_model, title, link, content_text=""):
     return None, None, None
 
 # ==========================================
-# 7. 기록 관리 함수 (최대 100개 유지)
+# 7. 기록 관리 함수 (최대 300개 유지)
 # ==========================================
 
-# (1) 소스별 링크 파일 관리
 def get_processed_links(filename):
     if not os.path.exists(filename):
         return []
@@ -268,12 +267,11 @@ def save_processed_link(filename, link):
     links = get_processed_links(filename)
     if link not in links:
         links.append(link)
-        if len(links) > MAX_HISTORY: # 100개 유지
+        if len(links) > MAX_HISTORY: # 300개 유지
             links = links[-MAX_HISTORY:]
         with open(filename, 'w', encoding='utf-8') as f:
             f.write("\n".join(links))
 
-# (2) 전역 제목 파일 관리 (중복 내용 방지용)
 def get_global_titles():
     if not os.path.exists(GLOBAL_TITLE_FILE):
         return []
@@ -282,24 +280,20 @@ def get_global_titles():
 
 def save_global_title(title):
     titles = get_global_titles()
-    # 공백 제거 및 소문자화 후 저장 (비교 정확도 향상)
     clean_title = re.sub(r'\s+', ' ', title).strip()
     
     if clean_title not in titles:
         titles.append(clean_title)
-        if len(titles) > MAX_HISTORY:
+        if len(titles) > MAX_HISTORY: # 300개 유지
             titles = titles[-MAX_HISTORY:]
         with open(GLOBAL_TITLE_FILE, 'w', encoding='utf-8') as f:
             f.write("\n".join(titles))
 
-# ★ [핵심] 제목 유사도 검사 (0.0 ~ 1.0)
 def is_similar_title(new_title, existing_titles):
     clean_new = re.sub(r'\s+', ' ', new_title).strip()
     
     for old_title in existing_titles:
-        # 유사도 계산 (SequenceMatcher)
         ratio = SequenceMatcher(None, clean_new, old_title).ratio()
-        # 60% 이상 비슷하면 중복으로 간주 (예: "삼성전자 상승" vs "삼성전자 주가 상승")
         if ratio > 0.6: 
             print(f"🚫 중복 감지 (유사도 {ratio:.2f}): {clean_new} <-> {old_title}")
             return True
@@ -310,8 +304,6 @@ def is_similar_title(new_title, existing_titles):
 # ==========================================
 if __name__ == "__main__":
     current_model = get_working_model()
-    
-    # 전역 타이틀 로드
     global_titles = get_global_titles()
     
     for category, rss_url, filename, default_source_name in RSS_SOURCES:
@@ -326,19 +318,17 @@ if __name__ == "__main__":
             print("RSS 파싱 실패")
             continue
         
-        # 1. 링크 중복 체크 (해당 소스 내에서)
+        # 1. 링크 중복 체크
         processed_links = get_processed_links(filename)
         if news.link in processed_links:
             print("이미 처리된 링크입니다.")
             continue
 
-        # 2. 제목 유사도 체크 (전체 소스 통틀어서)
-        # 텔레그램 속보 등은 제목이 없을 수 있으므로 description 사용 가능
+        # 2. 제목 유사도 체크
         check_title = news.title if news.title else (news.description[:50] if hasattr(news, 'description') else "")
-        
         if is_similar_title(check_title, global_titles):
             print("패스: 다른 소스에서 이미 다룬 내용입니다.")
-            save_processed_link(filename, news.link) # 링크는 저장해서 다음에 또 검사 안 하게 함
+            save_processed_link(filename, news.link)
             continue
 
         print(f"✨ 새 뉴스 발견: {news.title}")
@@ -390,10 +380,8 @@ if __name__ == "__main__":
                 client.create_tweet(text=reply_text, in_reply_to_tweet_id=tweet_id)
                 print("✅ 링크 댓글 완료!")
 
-                # ★ 성공 시 저장 (링크 & 제목 둘 다)
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
-                # 전역 리스트 메모리 업데이트
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
                 
             except Exception as e:
