@@ -10,11 +10,12 @@ import json
 # 1. 환경 변수 설정
 # ==========================================
 try:
-    GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-    CONSUMER_KEY = os.environ["CONSUMER_KEY"]
-    CONSUMER_SECRET = os.environ["CONSUMER_SECRET"]
-    ACCESS_TOKEN = os.environ["ACCESS_TOKEN"]
-    ACCESS_TOKEN_SECRET = os.environ["ACCESS_TOKEN_SECRET"]
+    # 혹시 모를 공백 제거를 위해 .strip() 추가
+    GEMINI_API_KEY = os.environ["GEMINI_API_KEY"].strip()
+    CONSUMER_KEY = os.environ["CONSUMER_KEY"].strip()
+    CONSUMER_SECRET = os.environ["CONSUMER_SECRET"].strip()
+    ACCESS_TOKEN = os.environ["ACCESS_TOKEN"].strip()
+    ACCESS_TOKEN_SECRET = os.environ["ACCESS_TOKEN_SECRET"].strip()
 except KeyError:
     print("⚠️ 환경 변수를 찾지 못해 종료합니다.")
     sys.exit(1)
@@ -66,8 +67,13 @@ def save_current_link(last_link_file, current_link):
         f.write(current_link)
 
 def summarize_news(category, title, link):
-    # 여기가 핵심입니다. 최신 모델(1.5-flash)로 직접 요청합니다.
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # [핵심] 4가지 모델 이름을 순서대로 다 시도해봅니다. (하나라도 걸리면 성공)
+    models_to_try = [
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-001",
+        "gemini-pro",
+        "gemini-1.0-pro"
+    ]
     
     prompt = f"""
     너는 주식 시장 전문가 '마켓 레이더'야. 
@@ -92,18 +98,28 @@ def summarize_news(category, title, link):
         }]
     }
 
-    try:
-        response = requests.post(url, headers=headers, json=data)
-        if response.status_code == 200:
-            result = response.json()
-            return result['candidates'][0]['content']['parts'][0]['text']
-        else:
-            # 에러 발생 시 내용을 출력해줍니다.
-            print(f"⚠️ AI 요청 에러 (코드 {response.status_code}): {response.text}")
-            return None
-    except Exception as e:
-        print(f"⚠️ 연결 실패: {e}")
-        return None
+    # 모델 리스트를 돌면서 성공할 때까지 시도
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+        try:
+            response = requests.post(url, headers=headers, json=data)
+            if response.status_code == 200:
+                result = response.json()
+                # 성공하면 바로 결과 리턴하고 종료
+                return result['candidates'][0]['content']['parts'][0]['text']
+            elif response.status_code == 404:
+                # 404면 다음 모델 시도
+                print(f"⚠️ {model_name} 모델 없음(404), 다음 모델 시도...")
+                continue 
+            else:
+                print(f"⚠️ AI 에러 ({model_name}, 코드 {response.status_code}): {response.text}")
+                continue
+        except Exception as e:
+            print(f"⚠️ 연결 실패 ({model_name}): {e}")
+            continue
+            
+    print("❌ 모든 AI 모델 시도 실패. 잠시 후 다시 시도하세요.")
+    return None
 
 # ==========================================
 # 5. 메인 실행
