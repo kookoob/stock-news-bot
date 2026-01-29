@@ -57,6 +57,7 @@ RSS_SOURCES = [
     ("미국주식(WSJ_Opinion)", "https://feeds.content.dowjones.io/public/rss/RSSOpinion", "last_link_wsj_op.txt", "WSJ"),
     ("미국주식(WSJ_Market)", "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", "last_link_wsj_mkt.txt", "WSJ"),
     ("미국주식(WSJ_Economy)", "https://feeds.content.dowjones.io/public/rss/socialeconomyfeed", "last_link_wsj_eco.txt", "WSJ"),
+    ("연예뉴스(SBS)", "https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=14&plink=RSSREADER", "last_link_sbs_ent.txt", "SBS연예")
     ("속보(텔레그램)", "https://rsshub.app/telegram/channel/bornlupin", "last_link_bornlupin.txt", "Telegram")
 ]
 
@@ -393,3 +394,4 @@ if __name__ == "__main__":
             print("🚨 AI 요약 실패")
     
         time.sleep(2)
+
