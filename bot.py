@@ -1,12 +1,13 @@
 import feedparser
 import tweepy
-import google.generativeai as genai
+import requests  # 구글 라이브러리 대신 직접 접속하는 도구
 import os
 import sys
 import time
+import json
 
 # ==========================================
-# 1. 환경 변수 설정 (GitHub Secrets)
+# 1. 환경 변수 설정
 # ==========================================
 try:
     GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
@@ -19,18 +20,12 @@ except KeyError:
     sys.exit(1)
 
 # ==========================================
-# 2. 설정 값 (뉴스 소스 3개 + 한국 1개)
+# 2. 설정 값 (뉴스 소스)
 # ==========================================
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-pro')
-
-# 요청하신 3가지 미국 뉴스 링크
-RSS_US_INVESTING = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069" # 투자
-RSS_US_FINANCE   = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664" # 금융
-RSS_US_TECH      = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910" # 기술
-
-# 한국 뉴스 링크
-RSS_KR = "https://www.hankyung.com/feed/finance" # 한국경제
+RSS_US_INVESTING = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069"
+RSS_US_FINANCE   = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"
+RSS_US_TECH      = "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910"
+RSS_KR = "https://www.hankyung.com/feed/finance"
 
 # ==========================================
 # 3. 트위터 인증
@@ -50,7 +45,6 @@ except Exception as e:
 # 4. 핵심 기능 함수들
 # ==========================================
 def get_latest_news(rss_url):
-    """RSS에서 최신 뉴스 1개를 가져옵니다."""
     try:
         feed = feedparser.parse(rss_url)
         if not feed.entries:
@@ -61,22 +55,22 @@ def get_latest_news(rss_url):
         return None
 
 def check_if_new(last_link_file, current_link):
-    """이미 올린 뉴스인지 확인합니다."""
     if not os.path.exists(last_link_file):
         return True
-    
     with open(last_link_file, 'r', encoding='utf-8') as f:
         last_link = f.read().strip()
-    
     return last_link != current_link
 
 def save_current_link(last_link_file, current_link):
-    """방금 올린 뉴스 링크를 저장합니다."""
     with open(last_link_file, 'w', encoding='utf-8') as f:
         f.write(current_link)
 
 def summarize_news(category, title, link):
-    """Gemini에게 뉴스 요약을 부탁합니다."""
+    """
+    [핵심 변경] 죽은 라이브러리 대신 '직통 연결'로 요약 요청
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    
     prompt = f"""
     너는 주식 시장 전문가 '마켓 레이더'야. 
     아래 뉴스 제목을 보고 한국인 투자자들이 이해하기 쉽게 3줄로 요약해줘.
@@ -92,11 +86,24 @@ def summarize_news(category, title, link):
     뉴스 제목: {title}
     뉴스 링크: {link}
     """
+    
+    headers = {'Content-Type': 'application/json'}
+    data = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }]
+    }
+
     try:
-        response = model.generate_content(prompt)
-        return response.text
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            result = response.json()
+            return result['candidates'][0]['content']['parts'][0]['text']
+        else:
+            print(f"⚠️ AI 요청 에러 (코드 {response.status_code}): {response.text}")
+            return None
     except Exception as e:
-        print(f"⚠️ AI 요약 실패: {e}")
+        print(f"⚠️ 연결 실패: {e}")
         return None
 
 # ==========================================
@@ -128,19 +135,11 @@ def process_news(category_name, rss_url, last_link_file):
     else:
         print("새로운 뉴스가 없습니다.")
 
-# 실행
 if __name__ == "__main__":
-    # 미국 뉴스 3종 세트 (각각 다른 기억장치 사용)
     process_news("미국주식(투자)", RSS_US_INVESTING, "last_link_us_investing.txt")
-    time.sleep(2) # 2초 휴식 (도배 방지)
-    
+    time.sleep(2)
     process_news("미국주식(금융)", RSS_US_FINANCE, "last_link_us_finance.txt")
     time.sleep(2)
-    
     process_news("미국주식(기술)", RSS_US_TECH, "last_link_us_tech.txt")
     time.sleep(2)
-    
-    # 한국 뉴스
     process_news("한국주식(한경)", RSS_KR, "last_link_kr.txt")
-
-
