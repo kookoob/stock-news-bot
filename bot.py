@@ -43,7 +43,7 @@ except Exception as e:
     print(f"⚠️ 트위터 클라이언트 연결 실패: {e}")
 
 # ==========================================
-# 3. 뉴스 소스 리스트
+# 3. 뉴스 소스 리스트 (매일경제 삭제 / 블룸버그 추가)
 # ==========================================
 RSS_SOURCES = [
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
@@ -52,7 +52,13 @@ RSS_SOURCES = [
     ("한국주식(한경)", "https://www.hankyung.com/feed/finance", "last_link_kr.txt", "한국경제"),
     ("미국주식(Yahoo)", "https://finance.yahoo.com/news/rssindex", "last_link_yahoo.txt", "Yahoo Finance"),
     ("미국주식(Tech)", "https://techcrunch.com/feed/", "last_link_techcrunch.txt", "TechCrunch"),
-    ("한국주식(매경)", "https://www.mk.co.kr/rss/50200011/", "last_link_mk.txt", "매일경제"),
+    
+    # [삭제됨] 매일경제
+    # ("한국주식(매경)", "https://www.mk.co.kr/rss/50200011/", "last_link_mk.txt", "매일경제"),
+
+    # [추가됨] 블룸버그 (RSSHub 사용)
+    ("미국주식(블룸버그)", "https://rsshub.app/bloomberg/markets", "last_link_bloomberg.txt", "Bloomberg"),
+
     ("미국주식(WSJ_Opinion)", "https://feeds.content.dowjones.io/public/rss/RSSOpinion", "last_link_wsj_op.txt", "WSJ"),
     ("미국주식(WSJ_Market)", "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", "last_link_wsj_mkt.txt", "WSJ"),
     ("미국주식(WSJ_Economy)", "https://feeds.content.dowjones.io/public/rss/socialeconomyfeed", "last_link_wsj_eco.txt", "WSJ"),
@@ -144,7 +150,7 @@ def create_info_image(text_lines, source_name):
         return None
 
 # ==========================================
-# 5. AI 모델 찾기 (최적화: 1회만 호출)
+# 5. AI 모델 찾기
 # ==========================================
 def get_working_model():
     print("🤖 사용 가능한 AI 모델 검색 중...")
@@ -164,7 +170,7 @@ def get_working_model():
     return "gemini-1.5-flash"
 
 # ==========================================
-# 6. AI 요약 함수 (★ 숫자 보호 로직 강화)
+# 6. AI 요약 함수 (숫자 보호 로직 포함)
 # ==========================================
 def summarize_news(target_model, title, link, content_text=""):
     prompt = f"""
@@ -235,12 +241,11 @@ def summarize_news(target_model, title, link, content_text=""):
                     for line in image_raw.split('\n'):
                         clean_line = line.strip().replace("**", "").replace("##", "")
                         
-                        # ★ [수정] 중요: 숫자 데이터 보호를 위한 정교한 정규식
-                        # 1. 기호만 먼저 제거 (-, *, ✅ 등)
+                        # 숫자 데이터 보호를 위한 정교한 정규식
+                        # 1. 기호만 먼저 제거
                         clean_line = re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►]+\s*", "", clean_line)
-                        # 2. '숫자+점+공백' 형태(예: 1. )인 경우에만 숫자 제거 (목차 번호라고 판단)
+                        # 2. '숫자+점+공백' (1. ) 형태만 제거 (연도/금액 보존)
                         clean_line = re.sub(r"^\d+\.\s+", "", clean_line)
-                        # 3. 주의: 그냥 맨 앞이 숫자(예: 2025년, 1400조)인 경우는 건드리지 않음!
                         
                         if clean_line: image_lines.append(clean_line)
                     
