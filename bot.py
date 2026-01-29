@@ -58,7 +58,7 @@ RSS_SOURCES = [
 ]
 
 # ==========================================
-# 4. 카드뉴스 생성 함수
+# 4. 카드뉴스 생성 함수 (16:9 비율)
 # ==========================================
 def create_info_image(text_lines, source_name):
     try:
@@ -120,23 +120,56 @@ def create_info_image(text_lines, source_name):
         return None
 
 # ==========================================
-# 5. AI 요약 함수 (★ 재시도 기능 추가됨)
+# 5. AI 모델 자동 찾기 함수 (★ 핵심 수정)
+# ==========================================
+def get_working_model():
+    """사용 가능한 Gemini 모델을 찾아서 반환"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
+    
+    # 우리가 선호하는 모델 순서 (Flash -> Pro -> 일반)
+    preferred_order = [
+        "gemini-1.5-flash", 
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash-001",
+        "gemini-1.5-pro",
+        "gemini-pro"
+    ]
+    
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            available_models = response.json().get('models', [])
+            
+            # 1. 생성 기능이 있는 모델만 필터링
+            gen_models = []
+            for m in available_models:
+                if 'generateContent' in m.get('supportedGenerationMethods', []):
+                    name = m['name'].replace('models/', '')
+                    gen_models.append(name)
+            
+            # 2. 선호 모델 순서대로 찾기
+            for pref in preferred_order:
+                for model in gen_models:
+                    if pref in model:
+                        return model # 찾았다!
+            
+            # 3. 선호하는 게 없으면 아무거나 첫 번째 거 반환
+            if gen_models:
+                return gen_models[0]
+                
+    except Exception as e:
+        print(f"⚠️ 모델 목록 조회 실패: {e}")
+    
+    # 최후의 수단 (이게 실패하면 진짜 키 문제임)
+    return "gemini-1.5-flash"
+
+# ==========================================
+# 6. AI 요약 함수 (재시도 로직 포함)
 # ==========================================
 def summarize_news(title, link):
-    list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
-    target_model = "gemini-1.5-flash" 
-
-    # 모델 자동 선택 (Pro 우선)
-    try:
-        list_res = requests.get(list_url)
-        if list_res.status_code == 200:
-            models = list_res.json().get('models', [])
-            for m in models:
-                name = m['name'].replace('models/', '')
-                if 'gemini-1.5-pro' in name:
-                    target_model = name
-                    break
-    except: pass
+    # ★ 모델을 동적으로 가져옵니다.
+    target_model = get_working_model()
+    # print(f"🤖 사용할 AI 모델: {target_model}") # 디버깅용
     
     prompt = f"""
     뉴스 제목: {title}
@@ -146,8 +179,8 @@ def summarize_news(title, link):
 
     [작성 규칙 1: 트위터 본문]
     - 구분자: ---BODY--- 아래에 작성
-    - 형식: X 프리미엄용 장문. 기사의 육하원칙, 구체적 수치, 데이터, 시장 영향을 포함해 '최대한 상세하게' 작성.
-    - 스타일: 한국어 번역 필수. 명사형 종결이나 음슴체(~함, ~임, ~발표 등) 사용. 존댓말 금지.
+    - 형식: X 프리미엄용 장문. 육하원칙, 수치, 데이터, 시장 영향을 포함해 상세하게.
+    - 스타일: 한국어 번역 필수. 명사형 종결이나 음슴체(~함, ~임). 존댓말 금지.
     - 구성:
       1. 제목 (이모지 포함 + 한글 번역)
       2. 상세 내용 (단락 구분 및 ✅ 체크포인트 활용)
@@ -158,7 +191,7 @@ def summarize_news(title, link):
     - 형식: 이미지 안에 들어갈 아주 짧고 간결한 요약.
     - 구성:
       1. 첫 줄: 강렬한 한글 제목 (이모지 X)
-      2. 나머지: 핵심 요약 문장 최대 7개 (문장부호 절제, 아주 짧게)
+      2. 나머지: 핵심 요약 문장 최대 7개 (아주 짧게)
 
     [공통 금지사항]
     - ** (볼드체), ## (헤딩) 등 마크다운 문법 절대 사용 금지.
@@ -179,13 +212,11 @@ def summarize_news(title, link):
     }
     headers = {'Content-Type': 'application/json'}
 
-    # ★ 3번까지 재시도하는 로직 추가
     max_retries = 3
     for attempt in range(max_retries):
         try:
             response = requests.post(url, headers=headers, json=data)
             
-            # 성공 (200 OK)
             if response.status_code == 200:
                 full_text = response.json()['candidates'][0]['content']['parts'][0]['text']
                 if "---BODY---" in full_text and "---IMAGE---" in full_text:
@@ -204,25 +235,23 @@ def summarize_news(title, link):
                 else:
                     return None, None
             
-            # 429 에러 (한도 초과) 발생 시 대기
-            elif response.status_code == 429:
+            elif response.status_code == 429: # 한도 초과 시 대기
                 print(f"⏳ API 한도 초과! 60초 대기 후 재시도 ({attempt+1}/{max_retries})...")
-                time.sleep(60) # 1분 대기
-                continue # 다시 시도
+                time.sleep(60)
+                continue
                 
             else:
-                print(f"🚨 API 에러: {response.text}")
+                print(f"🚨 API 에러 ({response.status_code}): {response.text}")
                 return None, None
                 
         except Exception as e:
             print(f"🚨 연결 에러: {e}")
             return None, None
     
-    print("❌ 3회 재시도 실패. 건너뜁니다.")
     return None, None
 
 # ==========================================
-# 6. 메인 실행 로직
+# 7. 메인 실행 로직
 # ==========================================
 def get_latest_news(rss_url):
     try:
@@ -247,7 +276,6 @@ if __name__ == "__main__":
         if news and check_if_new(filename, news.link):
             print(f"✨ 뉴스 발견: {news.title}")
             
-            # AI 요약 (재시도 로직 포함)
             body_text, img_lines = summarize_news(news.title, news.link)
             
             if body_text and img_lines:
@@ -285,9 +313,8 @@ if __name__ == "__main__":
                 if image_file and os.path.exists(image_file):
                     os.remove(image_file)
             else:
-                print("🚨 AI 요약 실패 (한도 초과 등)")
+                print("🚨 AI 요약 실패 (404/429 등)")
         else:
             print("새 뉴스 없음.")
         
-        # 뉴스 하나 처리 후 대기 시간 늘림 (2초 -> 10초)
         time.sleep(10)
