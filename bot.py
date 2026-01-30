@@ -45,14 +45,14 @@ except Exception as e:
     print(f"⚠️ 트위터 클라이언트 연결 실패: {e}")
 
 # ==========================================
-# 3. 뉴스 소스 리스트 (전쟁/국제 속보 추가됨)
+# 3. 뉴스 소스 리스트
 # ==========================================
 RSS_SOURCES = [
-    # ★ [추가] 국제/전쟁 속보 (가장 중요)
+    # 국제/전쟁 속보
     ("국제속보(연합)", "https://www.yna.co.kr/rss/international.xml", "last_link_yna_world.txt", "연합뉴스"),
     ("전쟁속보(구글)", "https://news.google.com/rss/search?q=전쟁+속보+미국+이란&hl=ko&gl=KR&ceid=KR:ko", "last_link_google_war.txt", "Google News"),
 
-    # 기존 경제/주식 뉴스
+    # 경제/주식 뉴스
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
     ("미국주식(금융)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "last_link_us_finance.txt", "CNBC"),
     ("미국주식(기술)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", "last_link_us_tech.txt", "CNBC"),
@@ -67,7 +67,8 @@ RSS_SOURCES = [
     ("한국주식(연합)", "https://www.yna.co.kr/rss/economy.xml", "last_link_yna.txt", "연합뉴스")
 ]
 
-MAX_HISTORY = 1000
+# ★ [수정] 기억할 히스토리 개수 (2000개로 상향)
+MAX_HISTORY = 2000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
 # ==========================================
@@ -234,16 +235,18 @@ def summarize_news(target_model, title, link, content_text=""):
     return None, None, None
 
 # ==========================================
-# 6. 기록 관리
+# 6. 기록 관리 (최대 2000개 유지 & 중복 검사)
 # ==========================================
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
+    # 읽어올 때 공백 제거
     with open(filename, 'r', encoding='utf-8') as f: return [line.strip() for line in f.readlines()]
 
 def save_processed_link(filename, link):
     links = get_processed_links(filename)
-    if link not in links:
-        links.append(link)
+    clean_link = link.strip() # ★ 저장할 때도 공백 제거
+    if clean_link not in links:
+        links.append(clean_link)
         if len(links) > MAX_HISTORY: links = links[-MAX_HISTORY:]
         with open(filename, 'w', encoding='utf-8') as f: f.write("\n".join(links))
 
@@ -283,14 +286,18 @@ if __name__ == "__main__":
             news = feed.entries[0]
         except: print("RSS 파싱 실패"); continue
         
+        # 6시간 이내 체크
         if not is_recent_news(news):
             continue
 
         processed_links = get_processed_links(filename)
-        if news.link in processed_links: print("이미 처리된 링크"); continue
+        # ★ 링크 비교 시 공백 제거 후 비교 (안전장치)
+        if news.link.strip() in processed_links: 
+            print("이미 처리된 링크 (동일 URL)"); continue
 
         check_title = news.title if news.title else (news.description[:50] if hasattr(news, 'description') else "")
         
+        # 중복 체크
         if is_similar_title(check_title, global_titles):
             print("패스: 다른 소스에서 이미 다룬 내용."); save_processed_link(filename, news.link); continue
 
@@ -320,6 +327,7 @@ if __name__ == "__main__":
                 print("✅ 업로드 성공")
                 client.create_tweet(text=f"🔗 원문 기사:\n{real_link}", in_reply_to_tweet_id=tweet_id)
                 
+                # ★ 성공 시 링크 저장 (공백 제거)
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
