@@ -60,6 +60,9 @@ RSS_SOURCES = [
     # 텔레그램 (본문 출처X, 댓글 링크X)
     ("속보(텔레그램)", "https://t.me/s/bornlupin", "last_link_bornlupin.txt", "Telegram"),
 
+    # ★ [추가] 연예뉴스 (연합뉴스)
+    ("연예뉴스(연합)", "https://www.yna.co.kr/rss/entertainment.xml", "last_link_yna_ent.txt", "연합뉴스"),
+
     ("국제속보(연합)", "https://www.yna.co.kr/rss/international.xml", "last_link_yna_world.txt", "연합뉴스"),
     ("전쟁속보(구글)", "https://news.google.com/rss/search?q=전쟁+속보+미국+이란&hl=ko&gl=KR&ceid=KR:ko", "last_link_google_war.txt", "Google News"),
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
@@ -245,7 +248,7 @@ def create_info_image(text_lines, source_name):
     except Exception as e: print(f"❌ 이미지 생성 에러: {e}"); return None
 
 # ==========================================
-# 6. AI 모델 및 프롬프트 (음슴체, 감정제거)
+# 6. AI 모델 및 프롬프트
 # ==========================================
 def get_working_model():
     print("🤖 AI 모델 조회 중...")
@@ -423,7 +426,7 @@ if __name__ == "__main__":
             final_source_name = detected_source if "텔레그램" in category else default_source_name
             if "TruthSocial" in category: final_source_name = "Truth Social (Donald Trump)"
             if "Burry" in category: final_source_name = "Michael Burry (Twitter)"
-            if "텔레그램" in category: final_source_name = None # 텔레그램은 소스 표시 안 함
+            if "텔레그램" in category: final_source_name = None 
                 
             image_file = create_info_image(img_lines, final_source_name)
             
@@ -435,7 +438,6 @@ if __name__ == "__main__":
                     media_id = media.media_id
                 
                 final_tweet = body_text
-                # ★ [수정] 텔레그램이 아닐 때만 출처 표시
                 if final_source_name and "텔레그램" not in category:
                     final_tweet += f"\n\n출처: {final_source_name}"
                 
@@ -449,7 +451,6 @@ if __name__ == "__main__":
                 tweet_id = response.data['id']
                 print("✅ 메인 트윗 성공")
                 
-                # ★ [수정] 텔레그램이 아닐 때만 댓글 링크 달기
                 if "텔레그램" not in category:
                     try:
                         client.create_tweet(text=f"🔗 원문 기사:\n{real_link}", in_reply_to_tweet_id=tweet_id)
