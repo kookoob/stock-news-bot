@@ -57,10 +57,10 @@ RSS_SOURCES = [
     # 블룸버그 (구글뉴스 필터링)
     ("미국주식(블룸버그)", "https://news.google.com/rss/search?q=site:bloomberg.com+when:1d&hl=en-US&gl=US&ceid=US:en", "last_link_bloomberg.txt", "Bloomberg"),
 
-    # 텔레그램 (본문 출처X, 댓글 링크X)
+    # 텔레그램
     ("속보(텔레그램)", "https://t.me/s/bornlupin", "last_link_bornlupin.txt", "Telegram"),
 
-    # ★ [추가] 연예뉴스 (연합뉴스)
+    # 연예뉴스
     ("연예뉴스(연합)", "https://www.yna.co.kr/rss/entertainment.xml", "last_link_yna_ent.txt", "연합뉴스"),
 
     ("국제속보(연합)", "https://www.yna.co.kr/rss/international.xml", "last_link_yna_world.txt", "연합뉴스"),
@@ -448,15 +448,8 @@ if __name__ == "__main__":
                 if media_id: response = client.create_tweet(text=final_tweet, media_ids=[media_id])
                 else: response = client.create_tweet(text=final_tweet)
                 
-                tweet_id = response.data['id']
                 print("✅ 메인 트윗 성공")
-                
-                if "텔레그램" not in category:
-                    try:
-                        client.create_tweet(text=f"🔗 원문 기사:\n{real_link}", in_reply_to_tweet_id=tweet_id)
-                        print("✅ 댓글 링크 성공")
-                    except Exception as e:
-                        print(f"⚠️ 댓글 실패: {e}")
+                # 댓글 링크 기능 완전히 삭제함
 
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
