@@ -45,10 +45,16 @@ except Exception as e:
     print(f"⚠️ 트위터 클라이언트 연결 실패: {e}")
 
 # ==========================================
-# 3. 뉴스 소스 리스트 (블룸버그 추가됨)
+# 3. 뉴스 소스 리스트 (마이클 버리 추가됨)
 # ==========================================
 RSS_SOURCES = [
-    # ★ [추가] 블룸버그 (구글뉴스 필터링 사용)
+    # ★ [추가] 마이클 버리 (Nitter 우회 RSS 사용) - 공식 X 대신 Nitter를 통해 긁어옴
+    ("마이클버리(Burry)", "https://nitter.privacydev.net/michaeljburry/rss", "last_link_burry.txt", "Michael Burry"),
+
+    # ★ [추가] 트럼프 트루스소셜 (API 사용)
+    ("트럼프(TruthSocial)", "https://truthsocial.com/@realDonaldTrump", "last_id_trump.txt", "Truth Social"),
+    
+    # ★ [추가] 블룸버그 (구글뉴스 필터링)
     ("미국주식(블룸버그)", "https://news.google.com/rss/search?q=site:bloomberg.com+when:1d&hl=en-US&gl=US&ceid=US:en", "last_link_bloomberg.txt", "Bloomberg"),
 
     ("속보(텔레그램)", "https://t.me/s/bornlupin", "last_link_bornlupin.txt", "Telegram"),
@@ -92,6 +98,54 @@ def is_recent_news(entry):
         return True
     except: return True
 
+# ★ [핵심] 트루스소셜 API 직접 호출 함수
+def fetch_truth_social_latest(url):
+    try:
+        TRUMP_ACCOUNT_ID = "107780213600000000"
+        api_url = f"https://truthsocial.com/api/v1/accounts/{TRUMP_ACCOUNT_ID}/statuses?exclude_replies=true&only_media=false"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'application/json'
+        }
+        
+        response = requests.get(api_url, headers=headers, timeout=10)
+        
+        if response.status_code != 200:
+            print(f"⚠️ 트루스소셜 API 에러: {response.status_code}")
+            return None
+            
+        posts = response.json()
+        if not posts: return None
+        
+        latest_post = posts[0]
+        post_id = latest_post.get('id')
+        content_html = latest_post.get('content', '')
+        created_at_str = latest_post.get('created_at')
+        
+        soup = BeautifulSoup(content_html, 'html.parser')
+        full_text = soup.get_text(separator="\n").strip()
+        
+        post_link = f"https://truthsocial.com/@realDonaldTrump/posts/{post_id}"
+        
+        title = full_text.split('\n')[0]
+        if len(title) > 50: title = title[:50] + "..."
+        if not title: title = "트럼프 트루스소셜 최신 포스팅"
+        
+        try:
+            post_time = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+            current_time = datetime.now(timezone.utc)
+            if (current_time - post_time) > timedelta(hours=6):
+                print(f"⏳ [오래된 포스팅] 6시간 경과: {current_time - post_time}")
+                return None
+        except: pass
+
+        return SimpleNews(title, post_link, full_text)
+        
+    except Exception as e:
+        print(f"⚠️ 트루스소셜 크롤링 실패: {e}")
+        return None
+
 def fetch_telegram_latest(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -128,7 +182,7 @@ def fetch_article_content(url):
     except: return None
 
 # ==========================================
-# 5. 이미지 생성 (깨짐 방지 + 디자인 고정)
+# 5. 이미지 생성
 # ==========================================
 def create_gradient_background(width, height, start_color, end_color):
     base = Image.new('RGB', (width, height), start_color)
@@ -212,7 +266,7 @@ def create_info_image(text_lines, source_name):
     except Exception as e: print(f"❌ 이미지 생성 에러: {e}"); return None
 
 # ==========================================
-# 6. AI 모델 및 프롬프트 (음슴체 강제, 마켓레이더 고정)
+# 6. AI 모델 및 프롬프트
 # ==========================================
 def get_working_model():
     print("🤖 사용 가능한 AI 모델 조회 중...")
@@ -353,10 +407,14 @@ if __name__ == "__main__":
         print(f"\n--- [{category}] ---")
         
         news = None
-        if "t.me/s/" in rss_url:
+        # 트루스소셜 처리
+        if "truthsocial.com" in rss_url: 
+             news = fetch_truth_social_latest(rss_url)
+             if not news: print("트루스소셜 새 글 없음"); continue
+        elif "t.me/s/" in rss_url: # 텔레그램
              news = fetch_telegram_latest(rss_url)
              if not news: print("텔레그램 없음"); continue
-        else:
+        else: # 일반 RSS (블룸버그, 마이클버리 포함)
             try:
                 feed = feedparser.parse(rss_url)
                 if not feed.entries: print("뉴스 없음"); continue
@@ -375,7 +433,9 @@ if __name__ == "__main__":
         print(f"✨ 새 뉴스: {news.title}")
         
         real_link = news.link
-        if "t.me/s/" in rss_url: scraped_content = news.description 
+        # 본문 추출 로직
+        if "truthsocial.com" in rss_url or "t.me/s/" in rss_url or "nitter" in rss_url:
+            scraped_content = news.description # 트루스/텔레/니터는 이미 본문을 가져옴
         else:
             print("🌍 크롤링 중...")
             rss_summary = news.description if hasattr(news, 'description') else ""
@@ -386,7 +446,12 @@ if __name__ == "__main__":
         body_text, img_lines, detected_source = summarize_news(current_model, news.title, real_link, scraped_content)
         
         if body_text and img_lines:
-            final_source_name = detected_source if "텔레그램" in category else default_source_name
+            # 소스 이름 정리
+            final_source_name = detected_source 
+            if "텔레그램" in category: final_source_name = default_source_name
+            if "TruthSocial" in category: final_source_name = "Truth Social (Donald Trump)"
+            if "Burry" in category: final_source_name = "Michael Burry (Twitter)"
+                
             image_file = create_info_image(img_lines, final_source_name)
             
             try:
@@ -399,7 +464,7 @@ if __name__ == "__main__":
                 final_tweet = body_text
                 if final_source_name: final_tweet += f"\n\n출처: {final_source_name}"
                 
-                # ★ [고정] 브랜드 해시태그 (나머지는 AI가 본문에 포함)
+                # ★ [고정] 브랜드 해시태그
                 final_tweet += " #마켓레이더"
                 
                 if len(final_tweet) > 12000: final_tweet = final_tweet[:11995] + "..."
