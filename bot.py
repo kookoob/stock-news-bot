@@ -49,15 +49,24 @@ except Exception as e:
 # 3. 뉴스 소스 리스트
 # ==========================================
 RSS_SOURCES = [
-    # ★ [추가] 하나차이나 (텔레그램)
+    # 하나차이나 (텔레그램)
     ("하나차이나(China)", "https://t.me/s/HANAchina", "last_link_hana.txt", "Telegram"),
     
-    # 기존 소스들...
+    # 마이클 버리 (Nitter 우회)
     ("마이클버리(Burry)", "https://nitter.privacydev.net/michaeljburry/rss", "last_link_burry.txt", "Michael Burry"),
+
+    # 트럼프 트루스소셜 (API)
     ("트럼프(TruthSocial)", "https://truthsocial.com/@realDonaldTrump", "last_id_trump.txt", "Truth Social"),
+    
+    # 블룸버그 (구글뉴스 필터링)
     ("미국주식(블룸버그)", "https://news.google.com/rss/search?q=site:bloomberg.com+when:1d&hl=en-US&gl=US&ceid=US:en", "last_link_bloomberg.txt", "Bloomberg"),
+
+    # 텔레그램
     ("속보(텔레그램)", "https://t.me/s/bornlupin", "last_link_bornlupin.txt", "Telegram"),
+
+    # 연예뉴스
     ("연예뉴스(연합)", "https://www.yna.co.kr/rss/entertainment.xml", "last_link_yna_ent.txt", "연합뉴스"),
+
     ("국제속보(연합)", "https://www.yna.co.kr/rss/international.xml", "last_link_yna_world.txt", "연합뉴스"),
     ("전쟁속보(구글)", "https://news.google.com/rss/search?q=전쟁+속보+미국+이란&hl=ko&gl=KR&ceid=KR:ko", "last_link_google_war.txt", "Google News"),
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
@@ -85,7 +94,7 @@ class SimpleNews:
         self.link = link
         self.description = description
         self.published_parsed = published_parsed
-        self.image_url = image_url # ★ 원본 이미지 URL 추가
+        self.image_url = image_url
 
 def is_recent_news(entry):
     if not hasattr(entry, 'published_parsed') or not entry.published_parsed: return True
@@ -163,12 +172,11 @@ def fetch_telegram_latest(url):
         last_msg = messages[-1]
         text_elem = last_msg.select_one('.tgme_widget_message_text')
         
-        # 텍스트 추출
         full_text = ""
         if text_elem:
             full_text = text_elem.get_text(separator="\n").strip()
         
-        # 이미지 URL 추출 (배경 이미지 스타일에서 파싱)
+        # 이미지 URL 추출 (배경 이미지 스타일 파싱)
         image_url = None
         photo_div = last_msg.select_one('.tgme_widget_message_photo_wrap')
         if photo_div:
@@ -195,13 +203,13 @@ def fetch_article_content_and_image(url):
         response.encoding = response.apparent_encoding
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 1. 이미지 찾기 (OpenGraph -> Twitter Card -> First Image)
+        # 이미지 찾기
         image_url = None
         og_image = soup.find('meta', property='og:image')
         if og_image:
             image_url = og_image.get('content')
         
-        # 2. 본문 찾기
+        # 본문 찾기
         for script in soup(["script", "style", "header", "footer", "nav", "aside", "form"]):
             script.decompose()
         paragraphs = soup.find_all('p')
@@ -212,7 +220,7 @@ def fetch_article_content_and_image(url):
     except: return None, None
 
 # ==========================================
-# 5. 이미지 생성 (깨짐 방지 + 디자인 고정)
+# 5. 이미지 생성 (디자인)
 # ==========================================
 def create_gradient_background(width, height, start_color, end_color):
     base = Image.new('RGB', (width, height), start_color)
@@ -294,7 +302,7 @@ def create_info_image(text_lines, source_name):
     except Exception as e: print(f"❌ 이미지 생성 에러: {e}"); return None
 
 # ==========================================
-# 6. AI 모델 및 프롬프트
+# 6. AI 모델 및 프롬프트 (★괄호 제거 명령 추가★)
 # ==========================================
 def get_working_model():
     print("🤖 AI 모델 조회 중...")
@@ -314,6 +322,7 @@ def get_working_model():
     return "gemini-pro"
 
 def summarize_news(target_model, title, link, content_text=""):
+    # ★ [프롬프트 수정] 괄호 절대 금지 명령 추가
     prompt = f"""
     [지시사항]
     제공된 뉴스 기사를 바탕으로 트위터 게시글과 이미지 텍스트를 작성하라.
@@ -330,7 +339,9 @@ def summarize_news(target_model, title, link, content_text=""):
     4. **무조건 한국어로 번역해서 작성할 것.**
     5. 내용이 없거나 짧으면 제목을 풀어서 설명해라.
     6. 트위터 본문은 ✅ 이모지를 사용한 리스트 형식.
-    7. **기사와 관련된 '주식 티커(예: $TSLA)'와 '관련 해시태그(예: #전기차)'를 본문 하단에 반드시 포함할 것.**
+    7. **기사와 관련된 '주식 티커'와 '관련 해시태그'를 본문 하단에 포함하되, 절대 괄호()를 사용하지 말고 공백으로만 구분하라.**
+       (나쁜 예: ($TSLA) (#전기차))
+       (좋은 예: $TSLA #전기차)
     8. 이미지는 제목 제외 최대 7줄.
 
     [출력 포맷]
@@ -342,7 +353,7 @@ def summarize_news(target_model, title, link, content_text=""):
     ✅ (상세 내용 3 - 명사형 종결)
     ...
     
-    (관련 티커 $AAA) (관련 해시태그 #BBB #CCC)
+    $AAA $BBB #CCC #DDD
 
     ---IMAGE---
     (한국어 제목 - 명사형 종결, 느낌표 금지)
@@ -458,7 +469,7 @@ if __name__ == "__main__":
         
         real_link = news.link
         
-        # 본문 및 이미지 추출 로직
+        # 이미지 URL 및 본문 추출 로직
         original_image_url = None
         
         if "truthsocial.com" in rss_url:
@@ -485,10 +496,9 @@ if __name__ == "__main__":
             if "Burry" in category: final_source_name = "Michael Burry (Twitter)"
             if "텔레그램" in category: final_source_name = None 
                 
-            # 1. 요약 카드 이미지 생성
             summary_card_file = create_info_image(img_lines, final_source_name)
             
-            # 2. 원본 이미지 다운로드 (있으면)
+            # 원본 이미지 다운로드
             original_image_file = None
             if original_image_url:
                 print("🖼️ 원본 이미지 다운로드 중...")
@@ -496,14 +506,10 @@ if __name__ == "__main__":
 
             try:
                 media_ids = []
-                
-                # 미디어 업로드 1: 요약 카드
                 if summary_card_file: 
                     print("📤 요약 카드 업로드...")
                     media1 = api.media_upload(summary_card_file)
                     media_ids.append(media1.media_id)
-                
-                # 미디어 업로드 2: 원본 이미지 (있다면)
                 if original_image_file:
                     print("📤 원본 이미지 업로드...")
                     try:
@@ -523,15 +529,12 @@ if __name__ == "__main__":
                 else: response = client.create_tweet(text=final_tweet)
                 
                 print("✅ 메인 트윗 성공")
-                
-                # 댓글 기능은 삭제됨 (요청사항)
 
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
             except Exception as e: print(f"❌ 전송 실패: {e}")
             
-            # 파일 청소
             if summary_card_file and os.path.exists(summary_card_file): os.remove(summary_card_file)
             if original_image_file and os.path.exists(original_image_file): os.remove(original_image_file)
         else: print("🚨 요약 실패")
