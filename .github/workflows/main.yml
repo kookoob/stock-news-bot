@@ -2,11 +2,12 @@ name: Run Stock News Bot
 
 on:
   schedule:
-    # 20분 간격 (매시 07분, 27분, 47분) - 경쟁이 적은 시간대 공략
-    - cron: '7,27,47 * * * *'
+    # 10분 간격 실행 (매시 00, 10, 20, 30, 40, 50분)
+    # 참고: 깃허브 서버 부하에 따라 실제 실행은 몇 분 지연될 수 있습니다.
+    - cron: '*/10 * * * *'
   workflow_dispatch: # 수동 실행 버튼 활성화
 
-# ★ [핵심] 봇이 파일을 쓰고 저장할 수 있는 권한 부여
+# ★ [핵심] 봇이 txt 파일을 업데이트하고 저장할 수 있는 권한
 permissions:
   contents: write
 
@@ -26,7 +27,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # beautifulsoup4가 꼭 있어야 본문 크롤링이 됩니다
+        # beautifulsoup4 포함 필수 라이브러리 설치
         pip install tweepy feedparser requests Pillow beautifulsoup4
 
     - name: Run bot
@@ -39,7 +40,7 @@ jobs:
       run: |
         python -u bot.py
 
-    # ★ [핵심] 변경된 기록 파일(*.txt)을 저장소에 영구 저장하는 단계
+    # ★ [핵심] 변경된 기록 파일(*.txt)을 저장소에 영구 저장
     - name: Commit and Push changes
       run: |
         git config --global user.name "GitHub Action Bot"
@@ -48,5 +49,5 @@ jobs:
         # 1. 변경된 모든 txt 파일 담기
         git add *.txt
         
-        # 2. 변경사항이 있으면 커밋하고 푸시 (없으면 패스)
+        # 2. 변경사항이 있으면 커밋하고 푸시 (없으면 패스하여 에러 방지)
         git diff --quiet && git diff --staged --quiet || (git commit -m "Update news history logs" && git push)
