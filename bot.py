@@ -10,6 +10,7 @@ import shutil
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageDraw, ImageFont
+from bs4 import BeautifulSoup  # ★ 웹 크롤링을 위한 필수 도구
 
 # ==========================================
 # 1. 환경 변수 로드
@@ -48,11 +49,8 @@ except Exception as e:
 # 3. 뉴스 소스 리스트
 # ==========================================
 RSS_SOURCES = [
-    # 국제/전쟁 속보
     ("국제속보(연합)", "https://www.yna.co.kr/rss/international.xml", "last_link_yna_world.txt", "연합뉴스"),
     ("전쟁속보(구글)", "https://news.google.com/rss/search?q=전쟁+속보+미국+이란&hl=ko&gl=KR&ceid=KR:ko", "last_link_google_war.txt", "Google News"),
-
-    # 경제/주식 뉴스
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
     ("미국주식(금융)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "last_link_us_finance.txt", "CNBC"),
     ("미국주식(기술)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", "last_link_us_tech.txt", "CNBC"),
@@ -67,12 +65,11 @@ RSS_SOURCES = [
     ("한국주식(연합)", "https://www.yna.co.kr/rss/economy.xml", "last_link_yna.txt", "연합뉴스")
 ]
 
-# 기억 용량 2000개
 MAX_HISTORY = 2000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
 # ==========================================
-# 4. 시간 제어 함수 (6시간 이내)
+# 4. 시간 제어 및 크롤링 함수
 # ==========================================
 def is_recent_news(entry):
     if not hasattr(entry, 'published_parsed') or not entry.published_parsed:
@@ -81,13 +78,44 @@ def is_recent_news(entry):
         published_time = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
         current_time = datetime.now(timezone.utc)
         time_diff = current_time - published_time
-        
         if time_diff > timedelta(hours=6):
             print(f"⏳ [오래된 뉴스] 6시간 경과로 스킵: {time_diff}")
             return False
         return True
-    except:
-        return True
+    except: return True
+
+# ★ [핵심 추가] 기사 원문 긁어오기 (크롤링)
+def fetch_article_content(url):
+    try:
+        # 사람인 척 하기 위한 헤더 (User-Agent)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        # 인코딩 자동 보정 (한글 깨짐 방지)
+        response.encoding = response.apparent_encoding
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 불필요한 태그 제거 (스크립트, 스타일, 헤더, 푸터 등)
+        for script in soup(["script", "style", "header", "footer", "nav", "aside", "form"]):
+            script.decompose()
+        
+        # 본문 추출 전략: <p> 태그 위주로 수집
+        paragraphs = soup.find_all('p')
+        
+        # 너무 짧은 문장(광고, 링크 등)은 제외하고 합치기
+        article_text = " ".join([p.get_text().strip() for p in paragraphs if len(p.get_text()) > 20])
+        
+        # 만약 <p> 태그로 못 찾았으면 전체 텍스트에서 긁어오기
+        if len(article_text) < 50:
+             article_text = soup.get_text(separator=' ', strip=True)
+             
+        # 토큰 절약을 위해 최대 4000자까지만 반환
+        return article_text[:4000]
+        
+    except Exception as e:
+        print(f"⚠️ 크롤링 실패 ({url}): {e} -> RSS 요약본으로 대체합니다.")
+        return None
 
 # ==========================================
 # 5. 이미지 및 AI 관련 함수
@@ -189,28 +217,27 @@ def get_working_model():
     return "gemini-1.5-flash"
 
 def summarize_news(target_model, title, link, content_text=""):
-    # ★ [수정됨] 환각 방지를 위한 초강력 프롬프트
+    # 프롬프트: 원문 데이터가 들어가므로 이제 정확한 수치를 요구할 수 있음
     prompt = f"""
     [역할]
     너는 금융 팩트 체크 전문가다. 
-    제공된 [뉴스 제목]과 [뉴스 내용(Raw)]에 있는 정보만 사용해서 요약해야 한다.
+    제공된 [뉴스 내용(Full Text)]을 바탕으로 핵심 정보를 요약해라.
 
-    [절대 금지 사항 - 위반 시 해고]
-    1. **숫자를 지어내지 마라.** (가격, 목표주가, 퍼센트 등)
-    2. 본문에 '목표주가'가 명시되어 있지 않은데, 네가 아는 지식으로 목표주가를 적지 마라.
-    3. 본문에 없는 내용은 추측해서 쓰지 마라.
-    4. 내용이 너무 짧아서 요약할 게 없으면, 그냥 제목만 반복해서 적어라. 거짓 정보를 보태지 마라.
+    [절대 규칙]
+    1. **기사 본문에 있는 구체적인 숫자(금액, 퍼센트, 날짜)를 적극적으로 인용해라.**
+    2. 본문에 없는 내용은 절대 지어내지 마라.
+    3. 만약 본문 크롤링에 실패해서 내용이 부실하다면, 제목 위주로만 작성해라.
 
     [입력 데이터]
     뉴스 제목: {title}
     뉴스 링크: {link}
-    뉴스 내용(Raw): {content_text}
+    뉴스 내용(Full Text): {content_text}
 
     [출력 양식]
     ---BODY---
-    (트위터 본문 작성. 한국어. 명사형 종결. 본문에 없는 숫자는 절대 포함 금지.)
+    (트위터 본문 작성. 한국어. 명사형 종결. 핵심 수치 포함.)
     ---IMAGE---
-    (첫 줄은 제목. 나머지는 핵심 요약 3~5줄. 본문에 없는 숫자 절대 금지.)
+    (첫 줄은 제목. 나머지는 핵심 요약 3~5줄. 핵심 수치 포함.)
     ---SOURCE---
     (언론사 이름)
     """
@@ -308,17 +335,24 @@ if __name__ == "__main__":
             save_processed_link(filename, news.link); 
             continue
 
-        print(f"✨ 새 뉴스 발견 (AI 분석 시작): {news.title}")
+        print(f"✨ 새 뉴스 발견: {news.title}")
+        print("🌍 기사 본문 크롤링 중...")
         
+        # ★ [핵심] 원문 긁어오기
         real_link = news.link
-        content_for_ai = ""
-        if hasattr(news, 'description'):
-            content_for_ai = news.description
-            if "텔레그램" in category:
-                urls = re.findall(r'(https?://\S+)', content_for_ai)
-                if urls: real_link = urls[0]
+        rss_summary = ""
+        if hasattr(news, 'description'): rss_summary = news.description
+        if "텔레그램" in category: # 텔레그램은 크롤링 필요 없음
+            scraped_content = rss_summary
+            urls = re.findall(r'(https?://\S+)', rss_summary)
+            if urls: real_link = urls[0]
+        else:
+            # 웹 크롤링 시도 -> 실패 시 RSS 요약본 사용
+            scraped_text = fetch_article_content(real_link)
+            scraped_content = scraped_text if scraped_text else rss_summary
 
-        body_text, img_lines, detected_source = summarize_news(current_model, news.title, real_link, content_for_ai)
+        print("🤖 AI 분석 시작...")
+        body_text, img_lines, detected_source = summarize_news(current_model, news.title, real_link, scraped_content)
         
         if body_text and img_lines:
             final_source_name = detected_source if "텔레그램" in category else default_source_name
@@ -336,7 +370,6 @@ if __name__ == "__main__":
                 if final_source_name: final_tweet += f"\n\n출처: {final_source_name}"
                 if "주식" in category and "#주식" not in final_tweet: final_tweet += " #주식"
                 
-                # ★ [수정] 본문 끝에 링크 추가
                 final_tweet += f"\n\n🔗 원문: {real_link}"
 
                 if len(final_tweet) > 11500: final_tweet = final_tweet[:11495] + "..."
