@@ -49,12 +49,24 @@ except Exception as e:
 # 3. 뉴스 소스 리스트
 # ==========================================
 RSS_SOURCES = [
+    # 하나차이나 (텔레그램)
     ("하나차이나(China)", "https://t.me/s/HANAchina", "last_link_hana.txt", "Telegram"),
+    
+    # 마이클 버리 (Nitter 우회)
     ("마이클버리(Burry)", "https://nitter.privacydev.net/michaeljburry/rss", "last_link_burry.txt", "Michael Burry"),
+
+    # 트럼프 트루스소셜 (API)
     ("트럼프(TruthSocial)", "https://truthsocial.com/@realDonaldTrump", "last_id_trump.txt", "Truth Social"),
+    
+    # 블룸버그 (구글뉴스 필터링)
     ("미국주식(블룸버그)", "https://news.google.com/rss/search?q=site:bloomberg.com+when:1d&hl=en-US&gl=US&ceid=US:en", "last_link_bloomberg.txt", "Bloomberg"),
+
+    # 텔레그램 (속보)
     ("속보(텔레그램)", "https://t.me/s/bornlupin", "last_link_bornlupin.txt", "Telegram"),
+
+    # 연예뉴스
     ("연예뉴스(연합)", "https://www.yna.co.kr/rss/entertainment.xml", "last_link_yna_ent.txt", "연합뉴스"),
+
     ("국제속보(연합)", "https://www.yna.co.kr/rss/international.xml", "last_link_yna_world.txt", "연합뉴스"),
     ("전쟁속보(구글)", "https://news.google.com/rss/search?q=전쟁+속보+미국+이란&hl=ko&gl=KR&ceid=KR:ko", "last_link_google_war.txt", "Google News"),
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
@@ -218,7 +230,11 @@ def create_info_image(text_lines, source_name):
             except: return None
         margin_x = 60; current_y = 40
         header_text = "MARKET RADAR"; 
-        if source_name: header_text += f" | {source_name}"
+        
+        # ★ [수정] source_name이 있고, "Telegram"이 아닐 때만 헤더에 추가
+        if source_name and source_name != "Telegram": 
+            header_text += f" | {source_name}"
+            
         draw.ellipse([(margin_x, current_y+8), (margin_x+12, current_y+20)], fill=accent_cyan)
         draw.text((margin_x + 25, current_y), header_text, font=font_header, fill=accent_cyan)
         KST = timezone(timedelta(hours=9))
@@ -385,6 +401,8 @@ if __name__ == "__main__":
         print(f"\n--- [{category}] ---")
         
         news = None
+        is_telegram = "t.me" in rss_url
+
         if "truthsocial.com" in rss_url: 
              news = fetch_truth_social_latest(rss_url)
              if not news: print("트루스소셜 새 글 없음"); continue
@@ -431,10 +449,10 @@ if __name__ == "__main__":
         body_text, img_lines, detected_source = summarize_news(current_model, news.title, real_link, scraped_content)
         
         if body_text and img_lines:
-            final_source_name = detected_source if "텔레그램" in category else default_source_name
+            final_source_name = detected_source if is_telegram else default_source_name
             if "TruthSocial" in category: final_source_name = "Truth Social (Donald Trump)"
             if "Burry" in category: final_source_name = "Michael Burry (Twitter)"
-            if "텔레그램" in category: final_source_name = None 
+            if is_telegram: final_source_name = "Telegram"
                 
             summary_card_file = create_info_image(img_lines, final_source_name)
             
@@ -455,7 +473,8 @@ if __name__ == "__main__":
                     except: pass
                 
                 final_tweet = body_text
-                if final_source_name and "텔레그램" not in category:
+                
+                if final_source_name and not is_telegram:
                     final_tweet += f"\n\n출처: {final_source_name}"
                 
                 final_tweet += " #마켓레이더"
@@ -470,8 +489,7 @@ if __name__ == "__main__":
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
                 
-                # ★ [핵심] 성공 시에만 2분(120초) 대기
-                print("⏳ 도배 방지: 다음 포스팅까지 2분 대기...")
+                print("⏳ 도배 방지: 2분 대기...")
                 time.sleep(120)
 
             except Exception as e: print(f"❌ 전송 실패: {e}")
@@ -479,5 +497,4 @@ if __name__ == "__main__":
             if summary_card_file and os.path.exists(summary_card_file): os.remove(summary_card_file)
             if original_image_file and os.path.exists(original_image_file): os.remove(original_image_file)
         else: print("🚨 요약 실패")
-        # 실패하거나 스킵했을 때는 대기 시간 없이 바로 다음 소스로 넘어감 (또는 아주 짧은 대기)
         time.sleep(2)
