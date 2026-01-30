@@ -3,7 +3,7 @@ name: Run Stock News Bot
 on:
   schedule:
     # 30분 간격 (매시 17분, 47분) - 경쟁이 적은 시간대
-    - cron: '17,47 * * * *'
+    - cron: '7,27,47 * * * *'
   workflow_dispatch: # 수동 실행 버튼 활성화
 
 # ★ [핵심] 봇이 파일을 쓰고 저장할 수 있는 권한 부여
