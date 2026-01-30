@@ -6,7 +6,6 @@ import sys
 import time
 import textwrap
 import re
-import shutil
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageDraw, ImageFont
@@ -120,12 +119,13 @@ def fetch_article_content(url):
             script.decompose()
         paragraphs = soup.find_all('p')
         article_text = " ".join([p.get_text().strip() for p in paragraphs if len(p.get_text()) > 20])
-        if len(article_text) < 50: article_text = soup.get_text(separator=' ', strip=True)
+        if len(article_text) < 100:
+             article_text = soup.get_text(separator=' ', strip=True)
         return article_text[:4000]
     except: return None
 
 # ==========================================
-# 5. 이미지 생성 (7줄 허용 + 폰트 깨짐 방지 도형)
+# 5. 이미지 생성 (감정 제거 및 디자인 고정)
 # ==========================================
 def create_gradient_background(width, height, start_color, end_color):
     base = Image.new('RGB', (width, height), start_color)
@@ -177,11 +177,15 @@ def create_info_image(text_lines, source_name):
         current_y += 70
 
         for i, line in enumerate(text_lines):
-            line = line.strip().replace("**", "").replace("##", "")
-            if not line: continue
+            # ★ [핵심 수정] AI가 뱉은 특수문자, 느낌표, 기호 싹 다 강제 삭제 (순수 텍스트만 남김)
+            # 이모지, 괄호 속 숫자, 불릿기호 등 전부 제거하고 글자만 남김
+            clean_line = re.sub(r"^[\W_]+", "", line.strip()) # 앞부분 특수문자 제거
+            clean_line = clean_line.replace("**", "").replace("##", "")
+            
+            if not clean_line: continue
             
             if i == 0: 
-                wrapped_title = textwrap.wrap(line, width=20)
+                wrapped_title = textwrap.wrap(clean_line, width=20)
                 title_box_height = len(wrapped_title) * 85 + 30
                 draw.rectangle([(margin_x - 20, current_y), (width - margin_x + 20, current_y + title_box_height)], fill=title_box_bg)
                 current_y += 20
@@ -191,15 +195,15 @@ def create_info_image(text_lines, source_name):
                 current_y += 40
             else: 
                 bullet_y = current_y + 12
-                # 불릿 포인트: 직사각형 그리기 (폰트 깨짐 원천 차단)
+                # 도형 직접 그리기 (폰트 영향 X)
                 draw.rectangle([margin_x, bullet_y, margin_x + 10, bullet_y + 10], fill=accent_cyan)
                 
-                wrapped_body = textwrap.wrap(line, width=40)
+                wrapped_body = textwrap.wrap(clean_line, width=40)
                 for wl in wrapped_body:
                     draw.text((margin_x + 35, current_y), wl, font=font_body, fill=text_white)
                     current_y += 48
                 current_y += 15
-            if current_y > height - 60: break # 공간 부족하면 중단
+            if current_y > height - 60: break 
             
         draw.rectangle([(margin_x, height - 20), (width - margin_x, height - 18)], fill=accent_cyan)
         temp_filename = "temp_card_16_9.png"
@@ -208,7 +212,7 @@ def create_info_image(text_lines, source_name):
     except Exception as e: print(f"❌ 이미지 생성 에러: {e}"); return None
 
 # ==========================================
-# 6. AI 모델 및 프롬프트 (조건 엄수)
+# 6. AI 모델 및 프롬프트 (건조한 톤, 한글 강제)
 # ==========================================
 def get_working_model():
     print("🤖 사용 가능한 AI 모델 조회 중...")
@@ -230,41 +234,43 @@ def get_working_model():
     return "gemini-pro"
 
 def summarize_news(target_model, title, link, content_text=""):
-    # ★ [수정] 제한 조건 명확화: 상세히 쓰되 X Premium 제한 고려
+    # ★ [수정] 감정 제거, 한글 강제, 느낌표 금지
     prompt = f"""
-    뉴스 제목: {title}
-    뉴스 링크: {link}
-    뉴스 내용(Raw): {content_text}
+    [지시사항]
+    제공된 뉴스 기사를 바탕으로 트위터 게시글과 이미지 텍스트를 작성하라.
+    
+    [입력 데이터]
+    제목: {title}
+    링크: {link}
+    내용: {content_text}
 
-    [역할] 금융 뉴스 팩트체크 전문가.
-    [필수 규칙]
-    1. 본문 내용을 기반으로 작성하되, 없는 숫자는 지어내지 말 것.
-    2. 말투는 명사형 종결(음슴체).
-    3. **트위터 본문은 'X Premium' 기준에 맞춰 상세하게 작성하되, 너무 장황하지 않게 핵심을 모두 포함할 것.**
-    4. **이미지는 제목 제외 최대 7줄까지 작성 가능.** (내용이 많으면 7줄까지 꽉 채울 것)
+    [필수 규칙 - 위반 시 실패]
+    1. **감정을 완전히 배제할 것.** (건조하고 객관적인 뉴스 톤 유지)
+    2. **느낌표(!) 절대 사용 금지.** (제목, 본문 포함 모든 곳에서 금지)
+    3. **무조건 한국어로 번역해서 작성할 것.** (영어 제목 절대 금지)
+    4. 내용이 없거나 짧으면 '확인 불가'라고 하지 말고, 제목을 풀어서 설명해라.
+    5. 트위터 본문은 ✅ 이모지를 사용한 리스트 형식.
+    6. 이미지는 제목 제외 최대 7줄.
 
-    [작성 규칙 1: 트위터 본문]
-    - ---BODY--- 아래 작성.
-    - 구성: 
-      (이모지) 제목
-      
-      ✅ (상세 요약 1 - 수치 포함)
-      ✅ (상세 요약 2)
-      ... (내용이 있다면 계속 작성 가능, 글자수 넉넉하게 사용)
-      
-      (티커) (해시태그 #주식 필수)
+    [출력 포맷]
+    ---BODY---
+    (이모지) (한국어 제목 - 느낌표 금지)
+    
+    ✅ (상세 내용 1 - 한국어)
+    ✅ (상세 내용 2 - 한국어)
+    ✅ (상세 내용 3 - 한국어)
+    ...
+    
+    (티커) (해시태그)
 
-    [작성 규칙 2: 인포그래픽 이미지 텍스트]
-    - ---IMAGE--- 아래 작성.
-    - 구성:
-      (강렬한 제목 - 한 줄)
-      (핵심 요약 1 - 짧게)
-      (핵심 요약 2 - 짧게)
-      ...
-      (핵심 요약 7 - 내용이 충분하다면 최대 7개까지 작성)
+    ---IMAGE---
+    (한국어 제목 - 느낌표 금지)
+    (핵심 요약 1 - 한국어)
+    (핵심 요약 2 - 한국어)
+    ...
 
-    [작성 규칙 3: 원천 소스]
-    - ---SOURCE--- 아래 작성. (언론사 이름만)
+    ---SOURCE---
+    (언론사)
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
@@ -298,8 +304,8 @@ def summarize_news(target_model, title, link, content_text=""):
                 
                 body_part = body_raw.replace("**", "").replace("##", "")
                 
-                # 이미지 텍스트 정제
-                image_lines = [re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►\■]+\s*", "", l.strip()) for l in image_raw.split('\n') if l.strip()]
+                # 이미지 텍스트 리스트화
+                image_lines = [l.strip() for l in image_raw.split('\n') if l.strip()]
                 source_name = source_raw.split('\n')[0].strip()
                 return body_part, image_lines, source_name
             else:
@@ -374,7 +380,7 @@ if __name__ == "__main__":
             print("🌍 크롤링 중...")
             rss_summary = news.description if hasattr(news, 'description') else ""
             scraped_text = fetch_article_content(real_link)
-            scraped_content = scraped_text if scraped_text else rss_summary
+            scraped_content = scraped_text if (scraped_text and len(scraped_text) > 50) else rss_summary
 
         print("🤖 AI 분석 시작...")
         body_text, img_lines, detected_source = summarize_news(current_model, news.title, real_link, scraped_content)
@@ -394,7 +400,6 @@ if __name__ == "__main__":
                 if final_source_name: final_tweet += f"\n\n출처: {final_source_name}"
                 if "주식" in category and "#주식" not in final_tweet: final_tweet += " #주식"
                 
-                # ★ [안전장치] X Premium 한글 제한 고려 (약 12000자 안전 커트라인)
                 if len(final_tweet) > 12000: final_tweet = final_tweet[:11995] + "..."
 
                 if media_id: response = client.create_tweet(text=final_tweet, media_ids=[media_id])
