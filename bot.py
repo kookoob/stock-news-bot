@@ -49,15 +49,15 @@ except Exception as e:
 # 3. 뉴스 소스 리스트
 # ==========================================
 RSS_SOURCES = [
+    # 트럼프 (텔레그램 미러링으로 대체 - 가장 안정적)
+    ("트럼프(TruthSocial)", "https://t.me/s/real_DonaldJTrump", "last_id_trump.txt", "Telegram"),
+
     # 하나차이나 (텔레그램)
     ("하나차이나(China)", "https://t.me/s/HANAchina", "last_link_hana.txt", "Telegram"),
     
     # 마이클 버리 (Nitter 우회)
     ("마이클버리(Burry)", "https://nitter.privacydev.net/michaeljburry/rss", "last_link_burry.txt", "Michael Burry"),
 
-    # 트럼프 트루스소셜 (API)
-    ("트럼프(TruthSocial)", "https://truthsocial.com/@realDonaldTrump", "last_id_trump.txt", "Truth Social"),
-    
     # 블룸버그 (구글뉴스 필터링)
     ("미국주식(블룸버그)", "https://news.google.com/rss/search?q=site:bloomberg.com+when:1d&hl=en-US&gl=US&ceid=US:en", "last_link_bloomberg.txt", "Bloomberg"),
 
@@ -83,8 +83,8 @@ RSS_SOURCES = [
 ]
 
 MAX_HISTORY = 2000
-GLOBAL_TITLE_FILE = "processed_global_titles.txt" # 제목/원문 해시 저장
-GLOBAL_SUMMARY_FILE = "processed_ai_summaries.txt" # ★ AI 요약본 저장 (새로 추가)
+GLOBAL_TITLE_FILE = "processed_global_titles.txt"
+GLOBAL_SUMMARY_FILE = "processed_ai_summaries.txt"
 
 # ==========================================
 # 4. 크롤링 및 데이터 수집 함수
@@ -125,37 +125,7 @@ def download_image_from_url(url, save_path="temp_origin.jpg"):
         print(f"⚠️ 이미지 다운로드 실패: {e}")
     return None
 
-def fetch_truth_social_latest(url):
-    try:
-        TRUMP_ACCOUNT_ID = "107780213600000000"
-        api_url = f"https://truthsocial.com/api/v1/accounts/{TRUMP_ACCOUNT_ID}/statuses?exclude_replies=true&only_media=false"
-        headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
-        response = requests.get(api_url, headers=headers, timeout=10)
-        if response.status_code != 200: return None
-        posts = response.json()
-        if not posts: return None
-        latest_post = posts[0]
-        post_id = latest_post.get('id')
-        content_html = latest_post.get('content', '')
-        created_at_str = latest_post.get('created_at')
-        image_url = None
-        media_attachments = latest_post.get('media_attachments', [])
-        if media_attachments: image_url = media_attachments[0].get('url')
-        soup = BeautifulSoup(content_html, 'html.parser')
-        full_text = soup.get_text(separator="\n").strip()
-        post_link = f"https://truthsocial.com/@realDonaldTrump/posts/{post_id}"
-        title = full_text.split('\n')[0]
-        if len(title) > 50: title = title[:50] + "..."
-        if not title: title = "트럼프 트루스소셜 최신 포스팅"
-        try:
-            post_time = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-            if (datetime.now(timezone.utc) - post_time) > timedelta(hours=6): return None
-        except: pass
-        return SimpleNews(title, post_link, full_text, image_url=image_url)
-    except Exception as e:
-        print(f"⚠️ 트루스소셜 에러: {e}")
-        return None
-
+# ★ [핵심] 텔레그램 크롤러 (트럼프, 하나차이나, 속보 채널 모두 여기서 처리됨)
 def fetch_telegram_latest(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -163,20 +133,28 @@ def fetch_telegram_latest(url):
         soup = BeautifulSoup(response.text, 'html.parser')
         messages = soup.select('.tgme_widget_message_wrap')
         if not messages: return None
+        
         last_msg = messages[-1]
         text_elem = last_msg.select_one('.tgme_widget_message_text')
+        
         full_text = ""
         if text_elem: full_text = text_elem.get_text(separator="\n").strip()
+        
+        # 이미지 URL 추출
         image_url = None
         photo_div = last_msg.select_one('.tgme_widget_message_photo_wrap')
         if photo_div:
             style = photo_div.get('style', '')
             match = re.search(r"url\('?(.*?)'?\)", style)
             if match: image_url = match.group(1)
+            
         link_elem = last_msg.select_one('a.tgme_widget_message_date')
         post_link = link_elem['href'] if link_elem else url
+        
+        # 제목이 없으면 본문 앞부분을 제목으로 사용
         title = full_text.split('\n')[0] if full_text else "텔레그램 이미지 포스트"
         if len(title) > 50: title = title[:50] + "..."
+        
         return SimpleNews(title, post_link, full_text, image_url=image_url)
     except Exception as e:
         print(f"⚠️ 텔레그램 에러: {e}")
@@ -242,6 +220,7 @@ def create_info_image(text_lines, source_name):
         margin_x = 60; current_y = 40
         header_text = "MARKET RADAR"; 
         
+        # 텔레그램이 아닐 때만 헤더에 출처 표시
         if source_name and source_name != "Telegram": 
             header_text += f" | {source_name}"
             
@@ -379,42 +358,27 @@ def get_file_lines(filename):
 
 def save_file_line(filename, line):
     lines = get_file_lines(filename)
-    # 줄바꿈 및 공백 제거된 상태로 저장
     clean_line = re.sub(r'\s+', ' ', line).strip()
     if clean_line not in lines:
-        lines.append(clean_link if 'http' in line else clean_line)
+        lines.append(clean_line)
         if len(lines) > MAX_HISTORY: lines = lines[-MAX_HISTORY:]
         with open(filename, 'w', encoding='utf-8') as f: f.write("\n".join(lines))
 
 def normalize_text(text):
-    # 특수문자 제거, 소문자 변환, 단어 세트 반환 (비교용)
     text = re.sub(r'[^\w\s]', '', text.lower())
     return set(text.split())
 
 def is_duplicate_content(new_text, history_lines, threshold=0.6):
-    """
-    텍스트 내용 기반 중복 검사 (Jaccard & SequenceMatcher)
-    new_text: 비교할 새 텍스트 (본문 또는 AI 요약본)
-    history_lines: 기존 저장된 텍스트 리스트
-    threshold: 중복으로 간주할 유사도 기준 (0.6 = 60%)
-    """
     if not new_text or len(new_text) < 10: return False
-    
     new_words = normalize_text(new_text)
     if len(new_words) < 3: return False 
-
-    # 최신 기록부터 역순 비교 (속도 향상)
     for old_text in reversed(history_lines):
-        # 1. 단어 교집합 검사 (빠름)
         old_words = normalize_text(old_text)
         if len(old_words) == 0: continue
-        
         intersection = len(new_words & old_words)
         union = len(new_words | old_words)
         jaccard_sim = intersection / union if union > 0 else 0
-        
-        if jaccard_sim > 0.4: # 단어가 40% 이상 겹치면 의심
-            # 2. 정밀 문자열 비교 (느림, 정확)
+        if jaccard_sim > 0.4:
             seq_sim = SequenceMatcher(None, new_text, old_text).ratio()
             if seq_sim > threshold:
                 print(f"🚫 [중복 감지] 유사도 {seq_sim:.2f} | '{new_text[:30]}...'")
@@ -424,9 +388,8 @@ def is_duplicate_content(new_text, history_lines, threshold=0.6):
 if __name__ == "__main__":
     current_model = get_working_model()
     
-    # 전역 기록 로드
     global_titles = get_file_lines(GLOBAL_TITLE_FILE)
-    global_summaries = get_file_lines(GLOBAL_SUMMARY_FILE) # AI 요약본 기록
+    global_summaries = get_file_lines(GLOBAL_SUMMARY_FILE) 
     
     for category, rss_url, filename, default_source_name in RSS_SOURCES:
         print(f"\n--- [{category}] ---")
@@ -434,10 +397,8 @@ if __name__ == "__main__":
         news = None
         is_telegram = "t.me" in rss_url
 
-        if "truthsocial.com" in rss_url: 
-             news = fetch_truth_social_latest(rss_url)
-             if not news: print("트루스소셜 새 글 없음"); continue
-        elif "t.me/s/" in rss_url: 
+        # 트루스소셜(공식 API) 삭제 -> 텔레그램(t.me)으로 통합 처리됨
+        if "t.me/s/" in rss_url: 
              news = fetch_telegram_latest(rss_url)
              if not news: print("텔레그램 없음"); continue
         else:
@@ -448,16 +409,12 @@ if __name__ == "__main__":
                 if not is_recent_news(news): continue 
             except: print("RSS 실패"); continue
 
-        # [필터 1] 링크 검사 (정확히 같은 URL)
         processed_links = get_file_lines(filename)
         if news.link.strip() in processed_links: 
             print("💰 이미 처리된 링크 (Link match)"); continue
 
-        # [필터 2] 원문/제목 내용 검사 (유사한 제목/본문)
-        # 텔레그램은 제목이 본문과 같으므로 본문 비교 효과
         check_content = news.title if news.title else (news.description[:100] if hasattr(news, 'description') else "")
         if is_duplicate_content(check_content, global_titles, threshold=0.55):
-            # 링크만 다르고 내용이 같으면, 링크도 처리된 걸로 저장해버림
             save_file_line(filename, news.link)
             continue
 
@@ -466,10 +423,7 @@ if __name__ == "__main__":
         real_link = news.link
         original_image_url = None
         
-        if "truthsocial.com" in rss_url:
-            scraped_content = news.description
-            original_image_url = news.image_url
-        elif "t.me/s/" in rss_url:
+        if "t.me/s/" in rss_url:
             scraped_content = news.description
             original_image_url = news.image_url
         elif "nitter" in rss_url:
@@ -485,18 +439,16 @@ if __name__ == "__main__":
         body_text, img_lines, detected_source = summarize_news(current_model, news.title, real_link, scraped_content)
         
         if body_text and img_lines:
-            # [필터 3] AI 요약본 검사 (핵심 내용 중복 확인)
-            # AI가 요약한 내용이 기존 요약들과 비슷하면 여기서 최종 스킵
             if is_duplicate_content(body_text, global_summaries, threshold=0.6):
                 print("🚨 [AI 요약 중복] 내용이 기존 트윗과 동일하여 스킵합니다.")
-                # 이것도 처리된 걸로 저장하여 다시 시도 안 하게 함
                 save_file_line(filename, news.link)
                 continue
 
             final_source_name = detected_source if is_telegram else default_source_name
+            # 트루스소셜 -> 텔레그램 미러링으로 통합되었으므로, 이름만 유지해주면 됨
             if "TruthSocial" in category: final_source_name = "Truth Social (Donald Trump)"
             if "Burry" in category: final_source_name = "Michael Burry (Twitter)"
-            if is_telegram: final_source_name = "Telegram"
+            if is_telegram and "TruthSocial" not in category: final_source_name = "Telegram"
                 
             summary_card_file = create_info_image(img_lines, final_source_name)
             
@@ -529,12 +481,9 @@ if __name__ == "__main__":
                 
                 print("✅ 메인 트윗 성공")
 
-                # 성공 후 데이터 저장
-                save_file_line(filename, news.link) # 링크 저장
-                save_file_line(GLOBAL_TITLE_FILE, check_content) # 제목/원문 앞부분 저장
+                save_file_line(filename, news.link)
+                save_file_line(GLOBAL_TITLE_FILE, check_content)
                 
-                # ★ AI 요약본도 저장 (다음 중복 검사 때 사용)
-                # 줄바꿈을 공백으로 바꿔서 한 줄로 저장
                 clean_summary = re.sub(r'\s+', ' ', body_text).strip()
                 with open(GLOBAL_SUMMARY_FILE, 'a', encoding='utf-8') as f:
                     f.write(clean_summary + "\n")
