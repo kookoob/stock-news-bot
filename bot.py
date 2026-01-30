@@ -49,24 +49,12 @@ except Exception as e:
 # 3. 뉴스 소스 리스트
 # ==========================================
 RSS_SOURCES = [
-    # 하나차이나 (텔레그램)
     ("하나차이나(China)", "https://t.me/s/HANAchina", "last_link_hana.txt", "Telegram"),
-    
-    # 마이클 버리 (Nitter 우회)
     ("마이클버리(Burry)", "https://nitter.privacydev.net/michaeljburry/rss", "last_link_burry.txt", "Michael Burry"),
-
-    # 트럼프 트루스소셜 (API)
     ("트럼프(TruthSocial)", "https://truthsocial.com/@realDonaldTrump", "last_id_trump.txt", "Truth Social"),
-    
-    # 블룸버그 (구글뉴스 필터링)
     ("미국주식(블룸버그)", "https://news.google.com/rss/search?q=site:bloomberg.com+when:1d&hl=en-US&gl=US&ceid=US:en", "last_link_bloomberg.txt", "Bloomberg"),
-
-    # 텔레그램
     ("속보(텔레그램)", "https://t.me/s/bornlupin", "last_link_bornlupin.txt", "Telegram"),
-
-    # 연예뉴스
     ("연예뉴스(연합)", "https://www.yna.co.kr/rss/entertainment.xml", "last_link_yna_ent.txt", "연합뉴스"),
-
     ("국제속보(연합)", "https://www.yna.co.kr/rss/international.xml", "last_link_yna_world.txt", "연합뉴스"),
     ("전쟁속보(구글)", "https://news.google.com/rss/search?q=전쟁+속보+미국+이란&hl=ko&gl=KR&ceid=KR:ko", "last_link_google_war.txt", "Google News"),
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
@@ -108,7 +96,6 @@ def is_recent_news(entry):
         return True
     except: return True
 
-# 이미지 다운로드 함수
 def download_image_from_url(url, save_path="temp_origin.jpg"):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -131,31 +118,23 @@ def fetch_truth_social_latest(url):
         if response.status_code != 200: return None
         posts = response.json()
         if not posts: return None
-        
         latest_post = posts[0]
         post_id = latest_post.get('id')
         content_html = latest_post.get('content', '')
         created_at_str = latest_post.get('created_at')
-        
-        # 이미지 URL 추출
         image_url = None
         media_attachments = latest_post.get('media_attachments', [])
-        if media_attachments:
-            image_url = media_attachments[0].get('url')
-            
+        if media_attachments: image_url = media_attachments[0].get('url')
         soup = BeautifulSoup(content_html, 'html.parser')
         full_text = soup.get_text(separator="\n").strip()
         post_link = f"https://truthsocial.com/@realDonaldTrump/posts/{post_id}"
-        
         title = full_text.split('\n')[0]
         if len(title) > 50: title = title[:50] + "..."
         if not title: title = "트럼프 트루스소셜 최신 포스팅"
-        
         try:
             post_time = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
             if (datetime.now(timezone.utc) - post_time) > timedelta(hours=6): return None
         except: pass
-        
         return SimpleNews(title, post_link, full_text, image_url=image_url)
     except Exception as e:
         print(f"⚠️ 트루스소셜 에러: {e}")
@@ -168,29 +147,20 @@ def fetch_telegram_latest(url):
         soup = BeautifulSoup(response.text, 'html.parser')
         messages = soup.select('.tgme_widget_message_wrap')
         if not messages: return None
-        
         last_msg = messages[-1]
         text_elem = last_msg.select_one('.tgme_widget_message_text')
-        
         full_text = ""
-        if text_elem:
-            full_text = text_elem.get_text(separator="\n").strip()
-        
-        # 이미지 URL 추출 (배경 이미지 스타일 파싱)
+        if text_elem: full_text = text_elem.get_text(separator="\n").strip()
         image_url = None
         photo_div = last_msg.select_one('.tgme_widget_message_photo_wrap')
         if photo_div:
             style = photo_div.get('style', '')
             match = re.search(r"url\('?(.*?)'?\)", style)
-            if match:
-                image_url = match.group(1)
-
+            if match: image_url = match.group(1)
         link_elem = last_msg.select_one('a.tgme_widget_message_date')
         post_link = link_elem['href'] if link_elem else url
-        
         title = full_text.split('\n')[0] if full_text else "텔레그램 이미지 포스트"
         if len(title) > 50: title = title[:50] + "..."
-        
         return SimpleNews(title, post_link, full_text, image_url=image_url)
     except Exception as e:
         print(f"⚠️ 텔레그램 에러: {e}")
@@ -202,20 +172,14 @@ def fetch_article_content_and_image(url):
         response = requests.get(url, headers=headers, timeout=10)
         response.encoding = response.apparent_encoding
         soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 이미지 찾기
         image_url = None
         og_image = soup.find('meta', property='og:image')
-        if og_image:
-            image_url = og_image.get('content')
-        
-        # 본문 찾기
+        if og_image: image_url = og_image.get('content')
         for script in soup(["script", "style", "header", "footer", "nav", "aside", "form"]):
             script.decompose()
         paragraphs = soup.find_all('p')
         article_text = " ".join([p.get_text().strip() for p in paragraphs if len(p.get_text()) > 20])
         if len(article_text) < 100: article_text = soup.get_text(separator=' ', strip=True)
-        
         return article_text[:4000], image_url
     except: return None, None
 
@@ -238,31 +202,25 @@ def create_info_image(text_lines, source_name):
         bg_start = (10, 25, 45); bg_end = (20, 40, 70)
         text_white = (245, 245, 250); text_gray = (180, 190, 210)
         accent_cyan = (0, 220, 255); title_box_bg = (0, 0, 0, 80)
-        
         image = create_gradient_background(width, height, bg_start, bg_end)
         draw = ImageDraw.Draw(image, 'RGBA')
-        
         try:
             font_title_main = ImageFont.truetype("font_bold.ttf", 60)
             font_body = ImageFont.truetype("font_reg.ttf", 34)
             font_header = ImageFont.truetype("font_bold.ttf", 26)
             font_date = ImageFont.truetype("font_reg.ttf", 26)
         except:
-            print("⚠️ 폰트 로드 실패, 기본 폰트 사용")
             try:
                 font_title_main = ImageFont.truetype("font.ttf", 60)
                 font_body = ImageFont.truetype("font.ttf", 34)
                 font_header = ImageFont.truetype("font.ttf", 26)
                 font_date = ImageFont.truetype("font.ttf", 26)
             except: return None
-
         margin_x = 60; current_y = 40
         header_text = "MARKET RADAR"; 
         if source_name: header_text += f" | {source_name}"
-        
         draw.ellipse([(margin_x, current_y+8), (margin_x+12, current_y+20)], fill=accent_cyan)
         draw.text((margin_x + 25, current_y), header_text, font=font_header, fill=accent_cyan)
-        
         KST = timezone(timedelta(hours=9))
         now = datetime.now(KST)
         date_str = f"{now.year}.{now.month:02d}.{now.day:02d} | @marketradar0"
@@ -270,12 +228,10 @@ def create_info_image(text_lines, source_name):
         date_width = date_bbox[2] - date_bbox[0]
         draw.text((width - margin_x - date_width, current_y), date_str, font=font_date, fill=text_gray)
         current_y += 70
-
         for i, line in enumerate(text_lines):
             clean_line = re.sub(r"^[\W_]+", "", line.strip()) 
             clean_line = clean_line.replace("**", "").replace("##", "")
             if not clean_line: continue
-            
             if i == 0: 
                 wrapped_title = textwrap.wrap(clean_line, width=20)
                 title_box_height = len(wrapped_title) * 85 + 30
@@ -294,15 +250,14 @@ def create_info_image(text_lines, source_name):
                     current_y += 48
                 current_y += 15
             if current_y > height - 60: break 
-            
         draw.rectangle([(margin_x, height - 20), (width - margin_x, height - 18)], fill=accent_cyan)
         temp_filename = "temp_card_16_9.png"
         image.convert("RGB").save(temp_filename)
         return temp_filename
-    except Exception as e: print(f"❌ 이미지 생성 에러: {e}"); return None
+    except: return None
 
 # ==========================================
-# 6. AI 모델 및 프롬프트 (★중복 방지 & 괄호 제거★)
+# 6. AI 모델 및 프롬프트
 # ==========================================
 def get_working_model():
     print("🤖 AI 모델 조회 중...")
@@ -331,57 +286,43 @@ def summarize_news(target_model, title, link, content_text=""):
     링크: {link}
     내용: {content_text}
 
-    [필수 규칙 - 위반 시 실패]
-    1. **감정을 완전히 배제할 것.** (건조하고 객관적인 뉴스 톤 유지)
-    2. **말투는 무조건 '~함', '~음', '~임', '~개최', '~돌파' 등 명사형으로 끝낼 것.** (존댓말 금지)
-    3. **느낌표(!) 절대 사용 금지.**
-    4. **무조건 한국어로 번역해서 작성할 것.**
-    5. 내용이 없거나 짧으면 제목을 풀어서 설명해라.
-    6. 트위터 본문은 ✅ 이모지를 사용한 리스트 형식.
-    7. **기사와 관련된 '주식 티커'와 '관련 해시태그'를 본문 하단에 포함하되, 절대 괄호()를 사용하지 말고 공백으로만 구분하라.**
-       (예: $TSLA #전기차)
-    8. 이미지는 제목 제외 최대 7줄.
+    [필수 규칙]
+    1. 감정 배제, 건조한 뉴스 톤 유지.
+    2. 말투는 '~함', '~음' 등 명사형 종결. (존댓말 금지)
+    3. 느낌표(!) 사용 금지.
+    4. 무조건 한국어 작성.
+    5. 트위터 본문은 ✅ 리스트 형식.
+    6. **티커와 해시태그에 괄호() 사용 금지. 공백으로 구분.** (예: $TSLA #전기차)
+    7. 이미지는 제목 제외 최대 7줄.
 
     [출력 포맷]
     ---BODY---
-    (이모지) (한국어 제목 - 명사형 종결, 느낌표 금지)
+    (이모지) (한국어 제목)
     
-    ✅ (상세 내용 1 - 명사형 종결)
-    ✅ (상세 내용 2 - 명사형 종결)
-    ✅ (상세 내용 3 - 명사형 종결)
-    ...
+    ✅ (내용 1)
+    ✅ (내용 2)
+    ✅ (내용 3)
     
-    $AAA $BBB #CCC #DDD
+    $AAA #BBB #CCC
 
     ---IMAGE---
-    (한국어 제목 - 명사형 종결, 느낌표 금지)
-    (핵심 요약 1 - 명사형 종결)
-    (핵심 요약 2 - 명사형 종결)
-    ...
+    (한국어 제목)
+    (요약 1)
+    (요약 2)
 
     ---SOURCE---
     (언론사)
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
-    safety_settings = [
-        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-    ]
+    safety_settings = [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]
     data = {"contents": [{"parts": [{"text": prompt}]}], "safetySettings": safety_settings}
-    headers = {'Content-Type': 'application/json'}
     
     for _ in range(2): 
         try:
-            response = requests.post(url, headers=headers, json=data)
+            response = requests.post(url, headers={'Content-Type': 'application/json'}, json=data)
             if response.status_code != 200: continue
-            
-            try:
-                full_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-            except: continue
-
+            full_text = response.json()['candidates'][0]['content']['parts'][0]['text']
             if "---BODY---" in full_text and "---IMAGE---" in full_text:
                 parts = full_text.split("---IMAGE---")
                 body_raw = parts[0].replace("---BODY---", "").strip()
@@ -404,7 +345,7 @@ def summarize_news(target_model, title, link, content_text=""):
     return None, None, None
 
 # ==========================================
-# 7. 메인 실행 로직 (★중복 방지 강화★)
+# 7. 메인 실행 로직
 # ==========================================
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
@@ -427,15 +368,12 @@ def save_global_title(title):
         if len(titles) > MAX_HISTORY: titles = titles[-MAX_HISTORY:]
         with open(GLOBAL_TITLE_FILE, 'w', encoding='utf-8') as f: f.write("\n".join(titles))
 
-# ★ [핵심] 제목 유사도 검사 (중복 방지 강화)
 def is_similar_title(new_title, existing_titles):
-    # 특수문자 제거 후 비교 (정확도 상승)
     clean_new = re.sub(r'[^\w\s]', '', new_title).strip()
     for old_title in existing_titles:
         clean_old = re.sub(r'[^\w\s]', '', old_title).strip()
-        # 0.55 이상이면 중복으로 간주 (기준 강화)
         if SequenceMatcher(None, clean_new, clean_old).ratio() > 0.55: 
-            print(f"🚫 중복 감지(Skip): {clean_new[:30]}... == {clean_old[:30]}...")
+            print(f"🚫 중복 감지(Skip): {clean_new[:30]}...")
             return True
     return False
 
@@ -465,7 +403,6 @@ if __name__ == "__main__":
         if news.link.strip() in processed_links: 
             print("💰 이미 처리된 링크"); continue
 
-        # ★ 중복 검사 실행
         check_title = news.title if news.title else (news.description[:50] if hasattr(news, 'description') else "")
         if is_similar_title(check_title, global_titles):
             save_processed_link(filename, news.link); continue
@@ -473,8 +410,6 @@ if __name__ == "__main__":
         print(f"✨ 새 뉴스: {news.title}")
         
         real_link = news.link
-        
-        # 이미지 URL 및 본문 추출 로직
         original_image_url = None
         
         if "truthsocial.com" in rss_url:
@@ -503,7 +438,6 @@ if __name__ == "__main__":
                 
             summary_card_file = create_info_image(img_lines, final_source_name)
             
-            # 원본 이미지 다운로드
             original_image_file = None
             if original_image_url:
                 print("🖼️ 원본 이미지 다운로드 중...")
@@ -512,22 +446,19 @@ if __name__ == "__main__":
             try:
                 media_ids = []
                 if summary_card_file: 
-                    print("📤 요약 카드 업로드...")
                     media1 = api.media_upload(summary_card_file)
                     media_ids.append(media1.media_id)
                 if original_image_file:
-                    print("📤 원본 이미지 업로드...")
                     try:
                         media2 = api.media_upload(original_image_file)
                         media_ids.append(media2.media_id)
-                    except: print("⚠️ 원본 이미지 업로드 실패 (무시)")
+                    except: pass
                 
                 final_tweet = body_text
                 if final_source_name and "텔레그램" not in category:
                     final_tweet += f"\n\n출처: {final_source_name}"
                 
                 final_tweet += " #마켓레이더"
-                
                 if len(final_tweet) > 12000: final_tweet = final_tweet[:11995] + "..."
 
                 if media_ids: response = client.create_tweet(text=final_tweet, media_ids=media_ids)
@@ -538,9 +469,15 @@ if __name__ == "__main__":
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
+                
+                # ★ [핵심] 성공 시에만 2분(120초) 대기
+                print("⏳ 도배 방지: 다음 포스팅까지 2분 대기...")
+                time.sleep(120)
+
             except Exception as e: print(f"❌ 전송 실패: {e}")
             
             if summary_card_file and os.path.exists(summary_card_file): os.remove(summary_card_file)
             if original_image_file and os.path.exists(original_image_file): os.remove(original_image_file)
         else: print("🚨 요약 실패")
+        # 실패하거나 스킵했을 때는 대기 시간 없이 바로 다음 소스로 넘어감 (또는 아주 짧은 대기)
         time.sleep(2)
