@@ -200,7 +200,10 @@ def create_info_image(text_lines, source_name):
         return temp_filename
     except Exception as e: print(f"❌ 이미지 생성 에러: {e}"); return None
 
-# ★ [핵심 수정] 모든 안전 장치 해제 (BLOCK_NONE)
+# ★ [핵심] 가장 똑똑하고 호환성 좋은 Pro 모델로 교체
+def get_working_model():
+    return "gemini-1.5-pro"
+
 def summarize_news(target_model, title, link, content_text=""):
     prompt = f"""
     [역할] 금융 뉴스 요약 전문가.
@@ -221,7 +224,7 @@ def summarize_news(target_model, title, link, content_text=""):
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
     
-    # ★ [중요] 4가지 안전 카테고리 모두 차단 해제
+    # 안전 설정: 모든 필터 해제 (전쟁/금융 뉴스 등 답변 거부 방지)
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -239,12 +242,10 @@ def summarize_news(target_model, title, link, content_text=""):
         try:
             response = requests.post(url, headers=headers, json=data)
             
-            # 응답 코드가 200이 아니면 에러 내용 출력
             if response.status_code != 200:
                 print(f"❌ API 응답 코드 에러: {response.status_code}, 내용: {response.text}")
                 continue
 
-            # 응답 파싱 시도
             try:
                 candidates = response.json().get('candidates', [])
                 if not candidates:
@@ -319,7 +320,7 @@ def is_similar_title(new_title, existing_titles):
 # 7. 메인 실행 로직
 # ==========================================
 if __name__ == "__main__":
-    current_model = "gemini-1.5-flash"
+    current_model = get_working_model() # gemini-1.5-pro
     global_titles = get_global_titles()
     
     for category, rss_url, filename, default_source_name in RSS_SOURCES:
