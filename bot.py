@@ -67,11 +67,12 @@ RSS_SOURCES = [
     ("한국주식(연합)", "https://www.yna.co.kr/rss/economy.xml", "last_link_yna.txt", "연합뉴스")
 ]
 
-MAX_HISTORY = 1000
+# 기억 용량 2000개 (중복 방지 강화)
+MAX_HISTORY = 2000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
 # ==========================================
-# 4. 시간 제어 함수 (6시간 이내 체크)
+# 4. 시간 제어 함수 (6시간 이내)
 # ==========================================
 def is_recent_news(entry):
     if not hasattr(entry, 'published_parsed') or not entry.published_parsed:
@@ -81,7 +82,6 @@ def is_recent_news(entry):
         current_time = datetime.now(timezone.utc)
         time_diff = current_time - published_time
         
-        # 6시간 경과 체크
         if time_diff > timedelta(hours=6):
             print(f"⏳ [오래된 뉴스] 6시간 경과로 스킵: {time_diff}")
             return False
@@ -172,21 +172,8 @@ def download_image(url):
     except: pass
     return None
 
+# ★ [비용 절감 핵심] 가장 저렴한 모델(Flash) 강제 고정
 def get_working_model():
-    print("🤖 사용 가능한 AI 모델 검색 중...")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
-    preferred_order = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
-    try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            models = [m['name'].replace('models/', '') for m in response.json().get('models', []) if 'generateContent' in m.get('supportedGenerationMethods', [])]
-            for pref in preferred_order:
-                for model in models:
-                    if pref in model: 
-                        print(f"✅ 모델 찾음: {model}")
-                        return model
-            if models: return models[0]
-    except: pass
     return "gemini-1.5-flash"
 
 def summarize_news(target_model, title, link, content_text=""):
@@ -209,7 +196,7 @@ def summarize_news(target_model, title, link, content_text=""):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
     data = {"contents": [{"parts": [{"text": prompt}]}], "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]}
     headers = {'Content-Type': 'application/json'}
-    for _ in range(3):
+    for _ in range(2): # 재시도 횟수도 2회로 줄여 비용 방어
         try:
             response = requests.post(url, headers=headers, json=data)
             if response.status_code == 200:
@@ -235,7 +222,7 @@ def summarize_news(target_model, title, link, content_text=""):
     return None, None, None
 
 # ==========================================
-# 6. 기록 관리 (최대 1000개 유지 & 중복 검사)
+# 6. 기록 관리 (최대 2000개)
 # ==========================================
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
@@ -270,10 +257,11 @@ def is_similar_title(new_title, existing_titles):
     return False
 
 # ==========================================
-# 7. 메인 실행 로직
+# 7. 메인 실행 로직 (★ 비용 절감 로직 적용)
 # ==========================================
 if __name__ == "__main__":
-    current_model = get_working_model()
+    # ★ 모델 고정 (Flash)
+    current_model = "gemini-1.5-flash"
     global_titles = get_global_titles()
     
     for category, rss_url, filename, default_source_name in RSS_SOURCES:
@@ -289,17 +277,22 @@ if __name__ == "__main__":
         if not is_recent_news(news):
             continue
 
+        # ★ [비용 절감 1] 링크 중복 시 API 호출 없이 즉시 종료
         processed_links = get_processed_links(filename)
         if news.link.strip() in processed_links: 
-            print("이미 처리된 링크 (동일 URL)"); continue
+            print("💰 [비용 절감] 이미 처리된 링크. API 호출 생략."); continue
 
         check_title = news.title if news.title else (news.description[:50] if hasattr(news, 'description') else "")
         
-        # 중복 체크
+        # ★ [비용 절감 2] 제목 중복 시 API 호출 없이 즉시 종료
         if is_similar_title(check_title, global_titles):
-            print("패스: 다른 소스에서 이미 다룬 내용."); save_processed_link(filename, news.link); continue
+            print("💰 [비용 절감] 중복 내용 감지. API 호출 생략."); 
+            save_processed_link(filename, news.link); # 링크만 저장해둠
+            continue
 
-        print(f"✨ 새 뉴스 발견: {news.title}")
+        print(f"✨ 새 뉴스 발견 (AI 분석 시작): {news.title}")
+        
+        # --- 여기서부터 돈이 나가는 구간 ---
         real_link = news.link
         content_for_ai = ""
         if hasattr(news, 'description'):
@@ -320,7 +313,7 @@ if __name__ == "__main__":
                 
                 final_tweet = body_text if not final_source_name else f"{body_text}\n\n출처: {final_source_name}"
                 
-                # ★ [추가] 주식 카테고리라면 #주식 해시태그 강제 추가
+                # #주식 해시태그 추가
                 if "주식" in category and "#주식" not in final_tweet:
                     final_tweet += " #주식"
                 
@@ -331,6 +324,7 @@ if __name__ == "__main__":
                 print("✅ 업로드 성공")
                 client.create_tweet(text=f"🔗 원문 기사:\n{real_link}", in_reply_to_tweet_id=tweet_id)
                 
+                # 성공 후 기록 저장
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
