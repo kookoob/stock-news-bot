@@ -177,9 +177,7 @@ def create_info_image(text_lines, source_name):
         current_y += 70
 
         for i, line in enumerate(text_lines):
-            # ★ [핵심 수정] AI가 뱉은 특수문자, 느낌표, 기호 싹 다 강제 삭제 (순수 텍스트만 남김)
-            # 이모지, 괄호 속 숫자, 불릿기호 등 전부 제거하고 글자만 남김
-            clean_line = re.sub(r"^[\W_]+", "", line.strip()) # 앞부분 특수문자 제거
+            clean_line = re.sub(r"^[\W_]+", "", line.strip()) 
             clean_line = clean_line.replace("**", "").replace("##", "")
             
             if not clean_line: continue
@@ -195,7 +193,6 @@ def create_info_image(text_lines, source_name):
                 current_y += 40
             else: 
                 bullet_y = current_y + 12
-                # 도형 직접 그리기 (폰트 영향 X)
                 draw.rectangle([margin_x, bullet_y, margin_x + 10, bullet_y + 10], fill=accent_cyan)
                 
                 wrapped_body = textwrap.wrap(clean_line, width=40)
@@ -234,7 +231,6 @@ def get_working_model():
     return "gemini-pro"
 
 def summarize_news(target_model, title, link, content_text=""):
-    # ★ [수정] 감정 제거, 한글 강제, 느낌표 금지
     prompt = f"""
     [지시사항]
     제공된 뉴스 기사를 바탕으로 트위터 게시글과 이미지 텍스트를 작성하라.
@@ -304,7 +300,6 @@ def summarize_news(target_model, title, link, content_text=""):
                 
                 body_part = body_raw.replace("**", "").replace("##", "")
                 
-                # 이미지 텍스트 리스트화
                 image_lines = [l.strip() for l in image_raw.split('\n') if l.strip()]
                 source_name = source_raw.split('\n')[0].strip()
                 return body_part, image_lines, source_name
@@ -398,7 +393,9 @@ if __name__ == "__main__":
                 
                 final_tweet = body_text
                 if final_source_name: final_tweet += f"\n\n출처: {final_source_name}"
-                if "주식" in category and "#주식" not in final_tweet: final_tweet += " #주식"
+                
+                # ★ [수정] 조건부 #주식 삭제 -> 무조건 #마켓레이더 고정
+                final_tweet += " #마켓레이더"
                 
                 if len(final_tweet) > 12000: final_tweet = final_tweet[:11995] + "..."
 
