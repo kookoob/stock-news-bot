@@ -6,6 +6,7 @@ import sys
 import time
 import textwrap
 import re
+import shutil
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageDraw, ImageFont
@@ -48,21 +49,15 @@ except Exception as e:
 # 3. 뉴스 소스 리스트
 # ==========================================
 RSS_SOURCES = [
-    # 마이클 버리 (Nitter 우회)
-    ("마이클버리(Burry)", "https://nitter.privacydev.net/michaeljburry/rss", "last_link_burry.txt", "Michael Burry"),
-
-    # 트럼프 트루스소셜 (API)
-    ("트럼프(TruthSocial)", "https://truthsocial.com/@realDonaldTrump", "last_id_trump.txt", "Truth Social"),
+    # ★ [추가] 하나차이나 (텔레그램)
+    ("하나차이나(China)", "https://t.me/s/HANAchina", "last_link_hana.txt", "Telegram"),
     
-    # 블룸버그 (구글뉴스 필터링)
+    # 기존 소스들...
+    ("마이클버리(Burry)", "https://nitter.privacydev.net/michaeljburry/rss", "last_link_burry.txt", "Michael Burry"),
+    ("트럼프(TruthSocial)", "https://truthsocial.com/@realDonaldTrump", "last_id_trump.txt", "Truth Social"),
     ("미국주식(블룸버그)", "https://news.google.com/rss/search?q=site:bloomberg.com+when:1d&hl=en-US&gl=US&ceid=US:en", "last_link_bloomberg.txt", "Bloomberg"),
-
-    # 텔레그램
     ("속보(텔레그램)", "https://t.me/s/bornlupin", "last_link_bornlupin.txt", "Telegram"),
-
-    # 연예뉴스
     ("연예뉴스(연합)", "https://www.yna.co.kr/rss/entertainment.xml", "last_link_yna_ent.txt", "연합뉴스"),
-
     ("국제속보(연합)", "https://www.yna.co.kr/rss/international.xml", "last_link_yna_world.txt", "연합뉴스"),
     ("전쟁속보(구글)", "https://news.google.com/rss/search?q=전쟁+속보+미국+이란&hl=ko&gl=KR&ceid=KR:ko", "last_link_google_war.txt", "Google News"),
     ("미국주식(투자)", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069", "last_link_us_investing.txt", "CNBC"),
@@ -85,11 +80,12 @@ GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 # 4. 크롤링 및 데이터 수집 함수
 # ==========================================
 class SimpleNews:
-    def __init__(self, title, link, description, published_parsed=None):
+    def __init__(self, title, link, description, published_parsed=None, image_url=None):
         self.title = title
         self.link = link
         self.description = description
         self.published_parsed = published_parsed
+        self.image_url = image_url # ★ 원본 이미지 URL 추가
 
 def is_recent_news(entry):
     if not hasattr(entry, 'published_parsed') or not entry.published_parsed: return True
@@ -103,6 +99,20 @@ def is_recent_news(entry):
         return True
     except: return True
 
+# 이미지 다운로드 함수
+def download_image_from_url(url, save_path="temp_origin.jpg"):
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, stream=True, timeout=10)
+        if response.status_code == 200:
+            with open(save_path, 'wb') as f:
+                response.raw.decode_content = True
+                shutil.copyfileobj(response.raw, f)
+            return save_path
+    except Exception as e:
+        print(f"⚠️ 이미지 다운로드 실패: {e}")
+    return None
+
 def fetch_truth_social_latest(url):
     try:
         TRUMP_ACCOUNT_ID = "107780213600000000"
@@ -112,21 +122,32 @@ def fetch_truth_social_latest(url):
         if response.status_code != 200: return None
         posts = response.json()
         if not posts: return None
+        
         latest_post = posts[0]
         post_id = latest_post.get('id')
         content_html = latest_post.get('content', '')
         created_at_str = latest_post.get('created_at')
+        
+        # 이미지 URL 추출
+        image_url = None
+        media_attachments = latest_post.get('media_attachments', [])
+        if media_attachments:
+            image_url = media_attachments[0].get('url')
+            
         soup = BeautifulSoup(content_html, 'html.parser')
         full_text = soup.get_text(separator="\n").strip()
         post_link = f"https://truthsocial.com/@realDonaldTrump/posts/{post_id}"
+        
         title = full_text.split('\n')[0]
         if len(title) > 50: title = title[:50] + "..."
         if not title: title = "트럼프 트루스소셜 최신 포스팅"
+        
         try:
             post_time = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
             if (datetime.now(timezone.utc) - post_time) > timedelta(hours=6): return None
         except: pass
-        return SimpleNews(title, post_link, full_text)
+        
+        return SimpleNews(title, post_link, full_text, image_url=image_url)
     except Exception as e:
         print(f"⚠️ 트루스소셜 에러: {e}")
         return None
@@ -138,32 +159,57 @@ def fetch_telegram_latest(url):
         soup = BeautifulSoup(response.text, 'html.parser')
         messages = soup.select('.tgme_widget_message_wrap')
         if not messages: return None
+        
         last_msg = messages[-1]
         text_elem = last_msg.select_one('.tgme_widget_message_text')
-        if not text_elem: return None
-        full_text = text_elem.get_text(separator="\n").strip()
+        
+        # 텍스트 추출
+        full_text = ""
+        if text_elem:
+            full_text = text_elem.get_text(separator="\n").strip()
+        
+        # 이미지 URL 추출 (배경 이미지 스타일에서 파싱)
+        image_url = None
+        photo_div = last_msg.select_one('.tgme_widget_message_photo_wrap')
+        if photo_div:
+            style = photo_div.get('style', '')
+            match = re.search(r"url\('?(.*?)'?\)", style)
+            if match:
+                image_url = match.group(1)
+
         link_elem = last_msg.select_one('a.tgme_widget_message_date')
         post_link = link_elem['href'] if link_elem else url
-        title = full_text.split('\n')[0]
+        
+        title = full_text.split('\n')[0] if full_text else "텔레그램 이미지 포스트"
         if len(title) > 50: title = title[:50] + "..."
-        return SimpleNews(title, post_link, full_text)
+        
+        return SimpleNews(title, post_link, full_text, image_url=image_url)
     except Exception as e:
         print(f"⚠️ 텔레그램 에러: {e}")
         return None
 
-def fetch_article_content(url):
+def fetch_article_content_and_image(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, timeout=10)
         response.encoding = response.apparent_encoding
         soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 1. 이미지 찾기 (OpenGraph -> Twitter Card -> First Image)
+        image_url = None
+        og_image = soup.find('meta', property='og:image')
+        if og_image:
+            image_url = og_image.get('content')
+        
+        # 2. 본문 찾기
         for script in soup(["script", "style", "header", "footer", "nav", "aside", "form"]):
             script.decompose()
         paragraphs = soup.find_all('p')
         article_text = " ".join([p.get_text().strip() for p in paragraphs if len(p.get_text()) > 20])
         if len(article_text) < 100: article_text = soup.get_text(separator=' ', strip=True)
-        return article_text[:4000]
-    except: return None
+        
+        return article_text[:4000], image_url
+    except: return None, None
 
 # ==========================================
 # 5. 이미지 생성 (깨짐 방지 + 디자인 고정)
@@ -411,13 +457,24 @@ if __name__ == "__main__":
         print(f"✨ 새 뉴스: {news.title}")
         
         real_link = news.link
-        if "truthsocial.com" in rss_url or "t.me/s/" in rss_url or "nitter" in rss_url:
+        
+        # 본문 및 이미지 추출 로직
+        original_image_url = None
+        
+        if "truthsocial.com" in rss_url:
+            scraped_content = news.description
+            original_image_url = news.image_url
+        elif "t.me/s/" in rss_url:
+            scraped_content = news.description
+            original_image_url = news.image_url
+        elif "nitter" in rss_url:
             scraped_content = news.description 
         else:
             print("🌍 크롤링 중...")
             rss_summary = news.description if hasattr(news, 'description') else ""
-            scraped_text = fetch_article_content(real_link)
+            scraped_text, found_img_url = fetch_article_content_and_image(real_link)
             scraped_content = scraped_text if (scraped_text and len(scraped_text) > 50) else rss_summary
+            original_image_url = found_img_url
 
         print("🤖 AI 분석 시작...")
         body_text, img_lines, detected_source = summarize_news(current_model, news.title, real_link, scraped_content)
@@ -428,14 +485,31 @@ if __name__ == "__main__":
             if "Burry" in category: final_source_name = "Michael Burry (Twitter)"
             if "텔레그램" in category: final_source_name = None 
                 
-            image_file = create_info_image(img_lines, final_source_name)
+            # 1. 요약 카드 이미지 생성
+            summary_card_file = create_info_image(img_lines, final_source_name)
             
+            # 2. 원본 이미지 다운로드 (있으면)
+            original_image_file = None
+            if original_image_url:
+                print("🖼️ 원본 이미지 다운로드 중...")
+                original_image_file = download_image_from_url(original_image_url)
+
             try:
-                media_id = None
-                if image_file: 
-                    print("📤 미디어 업로드...")
-                    media = api.media_upload(image_file)
-                    media_id = media.media_id
+                media_ids = []
+                
+                # 미디어 업로드 1: 요약 카드
+                if summary_card_file: 
+                    print("📤 요약 카드 업로드...")
+                    media1 = api.media_upload(summary_card_file)
+                    media_ids.append(media1.media_id)
+                
+                # 미디어 업로드 2: 원본 이미지 (있다면)
+                if original_image_file:
+                    print("📤 원본 이미지 업로드...")
+                    try:
+                        media2 = api.media_upload(original_image_file)
+                        media_ids.append(media2.media_id)
+                    except: print("⚠️ 원본 이미지 업로드 실패 (무시)")
                 
                 final_tweet = body_text
                 if final_source_name and "텔레그램" not in category:
@@ -445,16 +519,20 @@ if __name__ == "__main__":
                 
                 if len(final_tweet) > 12000: final_tweet = final_tweet[:11995] + "..."
 
-                if media_id: response = client.create_tweet(text=final_tweet, media_ids=[media_id])
+                if media_ids: response = client.create_tweet(text=final_tweet, media_ids=media_ids)
                 else: response = client.create_tweet(text=final_tweet)
                 
                 print("✅ 메인 트윗 성공")
-                # 댓글 링크 기능 완전히 삭제함
+                
+                # 댓글 기능은 삭제됨 (요청사항)
 
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
             except Exception as e: print(f"❌ 전송 실패: {e}")
-            if image_file and os.path.exists(image_file): os.remove(image_file)
+            
+            # 파일 청소
+            if summary_card_file and os.path.exists(summary_card_file): os.remove(summary_card_file)
+            if original_image_file and os.path.exists(original_image_file): os.remove(original_image_file)
         else: print("🚨 요약 실패")
         time.sleep(2)
