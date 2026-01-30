@@ -110,11 +110,9 @@ def is_recent_news(entry):
 
 def download_image_from_url(url, save_path="temp_origin.jpg"):
     try:
-        # 구글 로고 필터링
         if "google" in url or "gstatic" in url:
             print("🚫 구글 기본 이미지는 다운로드하지 않음")
             return None
-            
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, stream=True, timeout=10)
         if response.status_code == 200:
@@ -243,7 +241,6 @@ def create_info_image(text_lines, source_name):
         margin_x = 60; current_y = 40
         header_text = "MARKET RADAR"; 
         
-        # 텔레그램은 상단 출처 표시 생략
         if source_name and source_name != "Telegram": 
             header_text += f" | {source_name}"
             
@@ -373,7 +370,7 @@ def summarize_news(target_model, title, link, content_text=""):
     return None, None, None
 
 # ==========================================
-# 7. 메인 실행 로직
+# 7. 메인 실행 로직 (★중복 방지 강화★)
 # ==========================================
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
@@ -396,13 +393,34 @@ def save_global_title(title):
         if len(titles) > MAX_HISTORY: titles = titles[-MAX_HISTORY:]
         with open(GLOBAL_TITLE_FILE, 'w', encoding='utf-8') as f: f.write("\n".join(titles))
 
+# ★ [핵심] 제목 유사도 + 단어 교집합 검사 (강력한 중복 방지)
+def normalize_text(text):
+    # 특수문자 제거, 소문자 변환, 단어 세트 반환
+    text = re.sub(r'[^\w\s]', '', text.lower())
+    return set(text.split())
+
 def is_similar_title(new_title, existing_titles):
-    clean_new = re.sub(r'[^\w\s]', '', new_title).strip()
-    for old_title in existing_titles:
-        clean_old = re.sub(r'[^\w\s]', '', old_title).strip()
-        if SequenceMatcher(None, clean_new, clean_old).ratio() > 0.55: 
-            print(f"🚫 중복 감지(Skip): {clean_new[:30]}...")
+    new_words = normalize_text(new_title)
+    if len(new_words) < 2: return False # 단어가 너무 적으면 비교 스킵
+
+    # 최근에 추가된 타이틀부터 역순으로 비교 (속도 및 정확도 향상)
+    for old_title in reversed(existing_titles):
+        old_words = normalize_text(old_title)
+        
+        # 1. 단어 교집합(Jaccard) 검사: 40% 이상 단어가 같으면 중복
+        intersection = len(new_words & old_words)
+        union = len(new_words | old_words)
+        if union > 0:
+            similarity = intersection / union
+            if similarity > 0.4: 
+                print(f"🚫 키워드 중복 감지: '{new_title[:20]}...' == '{old_title[:20]}...'")
+                return True
+
+        # 2. 기존 문장 유사도(SequenceMatcher) 검사: 50% 이상 비슷하면 중복
+        if SequenceMatcher(None, new_title, old_title).ratio() > 0.5: 
+            print(f"🚫 문장 중복 감지: '{new_title[:20]}...'")
             return True
+            
     return False
 
 if __name__ == "__main__":
@@ -501,7 +519,6 @@ if __name__ == "__main__":
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
                 
-                # ★ [수정] 대기 시간 3분 (180초)
                 print("⏳ 도배 방지: 3분 대기...")
                 time.sleep(180)
 
