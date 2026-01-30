@@ -83,7 +83,8 @@ RSS_SOURCES = [
 ]
 
 MAX_HISTORY = 2000
-GLOBAL_TITLE_FILE = "processed_global_titles.txt"
+GLOBAL_TITLE_FILE = "processed_global_titles.txt" # 제목/원문 해시 저장
+GLOBAL_SUMMARY_FILE = "processed_ai_summaries.txt" # ★ AI 요약본 저장 (새로 추가)
 
 # ==========================================
 # 4. 크롤링 및 데이터 수집 함수
@@ -370,62 +371,62 @@ def summarize_news(target_model, title, link, content_text=""):
     return None, None, None
 
 # ==========================================
-# 7. 메인 실행 로직 (★중복 방지 강화★)
+# 7. 메인 실행 로직 (★3단계 중복 필터링★)
 # ==========================================
-def get_processed_links(filename):
+def get_file_lines(filename):
     if not os.path.exists(filename): return []
     with open(filename, 'r', encoding='utf-8') as f: return [line.strip() for line in f.readlines()]
-def save_processed_link(filename, link):
-    links = get_processed_links(filename)
-    clean_link = link.strip()
-    if clean_link not in links:
-        links.append(clean_link)
-        if len(links) > MAX_HISTORY: links = links[-MAX_HISTORY:]
-        with open(filename, 'w', encoding='utf-8') as f: f.write("\n".join(links))
-def get_global_titles():
-    if not os.path.exists(GLOBAL_TITLE_FILE): return []
-    with open(GLOBAL_TITLE_FILE, 'r', encoding='utf-8') as f: return [line.strip() for line in f.readlines()]
-def save_global_title(title):
-    titles = get_global_titles()
-    clean_title = re.sub(r'\s+', ' ', title).strip()
-    if clean_title not in titles:
-        titles.append(clean_title)
-        if len(titles) > MAX_HISTORY: titles = titles[-MAX_HISTORY:]
-        with open(GLOBAL_TITLE_FILE, 'w', encoding='utf-8') as f: f.write("\n".join(titles))
 
-# ★ [핵심] 제목 유사도 + 단어 교집합 검사 (강력한 중복 방지)
+def save_file_line(filename, line):
+    lines = get_file_lines(filename)
+    # 줄바꿈 및 공백 제거된 상태로 저장
+    clean_line = re.sub(r'\s+', ' ', line).strip()
+    if clean_line not in lines:
+        lines.append(clean_link if 'http' in line else clean_line)
+        if len(lines) > MAX_HISTORY: lines = lines[-MAX_HISTORY:]
+        with open(filename, 'w', encoding='utf-8') as f: f.write("\n".join(lines))
+
 def normalize_text(text):
-    # 특수문자 제거, 소문자 변환, 단어 세트 반환
+    # 특수문자 제거, 소문자 변환, 단어 세트 반환 (비교용)
     text = re.sub(r'[^\w\s]', '', text.lower())
     return set(text.split())
 
-def is_similar_title(new_title, existing_titles):
-    new_words = normalize_text(new_title)
-    if len(new_words) < 2: return False # 단어가 너무 적으면 비교 스킵
+def is_duplicate_content(new_text, history_lines, threshold=0.6):
+    """
+    텍스트 내용 기반 중복 검사 (Jaccard & SequenceMatcher)
+    new_text: 비교할 새 텍스트 (본문 또는 AI 요약본)
+    history_lines: 기존 저장된 텍스트 리스트
+    threshold: 중복으로 간주할 유사도 기준 (0.6 = 60%)
+    """
+    if not new_text or len(new_text) < 10: return False
+    
+    new_words = normalize_text(new_text)
+    if len(new_words) < 3: return False 
 
-    # 최근에 추가된 타이틀부터 역순으로 비교 (속도 및 정확도 향상)
-    for old_title in reversed(existing_titles):
-        old_words = normalize_text(old_title)
+    # 최신 기록부터 역순 비교 (속도 향상)
+    for old_text in reversed(history_lines):
+        # 1. 단어 교집합 검사 (빠름)
+        old_words = normalize_text(old_text)
+        if len(old_words) == 0: continue
         
-        # 1. 단어 교집합(Jaccard) 검사: 40% 이상 단어가 같으면 중복
         intersection = len(new_words & old_words)
         union = len(new_words | old_words)
-        if union > 0:
-            similarity = intersection / union
-            if similarity > 0.4: 
-                print(f"🚫 키워드 중복 감지: '{new_title[:20]}...' == '{old_title[:20]}...'")
+        jaccard_sim = intersection / union if union > 0 else 0
+        
+        if jaccard_sim > 0.4: # 단어가 40% 이상 겹치면 의심
+            # 2. 정밀 문자열 비교 (느림, 정확)
+            seq_sim = SequenceMatcher(None, new_text, old_text).ratio()
+            if seq_sim > threshold:
+                print(f"🚫 [중복 감지] 유사도 {seq_sim:.2f} | '{new_text[:30]}...'")
                 return True
-
-        # 2. 기존 문장 유사도(SequenceMatcher) 검사: 50% 이상 비슷하면 중복
-        if SequenceMatcher(None, new_title, old_title).ratio() > 0.5: 
-            print(f"🚫 문장 중복 감지: '{new_title[:20]}...'")
-            return True
-            
     return False
 
 if __name__ == "__main__":
     current_model = get_working_model()
-    global_titles = get_global_titles()
+    
+    # 전역 기록 로드
+    global_titles = get_file_lines(GLOBAL_TITLE_FILE)
+    global_summaries = get_file_lines(GLOBAL_SUMMARY_FILE) # AI 요약본 기록
     
     for category, rss_url, filename, default_source_name in RSS_SOURCES:
         print(f"\n--- [{category}] ---")
@@ -447,15 +448,20 @@ if __name__ == "__main__":
                 if not is_recent_news(news): continue 
             except: print("RSS 실패"); continue
 
-        processed_links = get_processed_links(filename)
+        # [필터 1] 링크 검사 (정확히 같은 URL)
+        processed_links = get_file_lines(filename)
         if news.link.strip() in processed_links: 
-            print("💰 이미 처리된 링크"); continue
+            print("💰 이미 처리된 링크 (Link match)"); continue
 
-        check_title = news.title if news.title else (news.description[:50] if hasattr(news, 'description') else "")
-        if is_similar_title(check_title, global_titles):
-            save_processed_link(filename, news.link); continue
+        # [필터 2] 원문/제목 내용 검사 (유사한 제목/본문)
+        # 텔레그램은 제목이 본문과 같으므로 본문 비교 효과
+        check_content = news.title if news.title else (news.description[:100] if hasattr(news, 'description') else "")
+        if is_duplicate_content(check_content, global_titles, threshold=0.55):
+            # 링크만 다르고 내용이 같으면, 링크도 처리된 걸로 저장해버림
+            save_file_line(filename, news.link)
+            continue
 
-        print(f"✨ 새 뉴스: {news.title}")
+        print(f"✨ 새 뉴스 발견: {news.title[:30]}...")
         
         real_link = news.link
         original_image_url = None
@@ -479,6 +485,14 @@ if __name__ == "__main__":
         body_text, img_lines, detected_source = summarize_news(current_model, news.title, real_link, scraped_content)
         
         if body_text and img_lines:
+            # [필터 3] AI 요약본 검사 (핵심 내용 중복 확인)
+            # AI가 요약한 내용이 기존 요약들과 비슷하면 여기서 최종 스킵
+            if is_duplicate_content(body_text, global_summaries, threshold=0.6):
+                print("🚨 [AI 요약 중복] 내용이 기존 트윗과 동일하여 스킵합니다.")
+                # 이것도 처리된 걸로 저장하여 다시 시도 안 하게 함
+                save_file_line(filename, news.link)
+                continue
+
             final_source_name = detected_source if is_telegram else default_source_name
             if "TruthSocial" in category: final_source_name = "Truth Social (Donald Trump)"
             if "Burry" in category: final_source_name = "Michael Burry (Twitter)"
@@ -515,9 +529,15 @@ if __name__ == "__main__":
                 
                 print("✅ 메인 트윗 성공")
 
-                save_processed_link(filename, news.link)
-                save_global_title(check_title)
-                global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
+                # 성공 후 데이터 저장
+                save_file_line(filename, news.link) # 링크 저장
+                save_file_line(GLOBAL_TITLE_FILE, check_content) # 제목/원문 앞부분 저장
+                
+                # ★ AI 요약본도 저장 (다음 중복 검사 때 사용)
+                # 줄바꿈을 공백으로 바꿔서 한 줄로 저장
+                clean_summary = re.sub(r'\s+', ' ', body_text).strip()
+                with open(GLOBAL_SUMMARY_FILE, 'a', encoding='utf-8') as f:
+                    f.write(clean_summary + "\n")
                 
                 print("⏳ 도배 방지: 3분 대기...")
                 time.sleep(180)
