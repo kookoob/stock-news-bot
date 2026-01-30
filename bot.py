@@ -67,8 +67,7 @@ RSS_SOURCES = [
     ("한국주식(연합)", "https://www.yna.co.kr/rss/economy.xml", "last_link_yna.txt", "연합뉴스")
 ]
 
-# ★ [수정] 기억할 히스토리 개수 (2000개로 상향)
-MAX_HISTORY = 2000
+MAX_HISTORY = 1000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
 # ==========================================
@@ -199,6 +198,7 @@ def summarize_news(target_model, title, link, content_text=""):
     [작성 규칙 1: 트위터 본문]
     - ---BODY--- 아래 작성. X 프리미엄용 장문 상세 요약. 한국어 번역 필수. 명사형 종결/음슴체.
     - 구성: 제목(이모지+한글), 상세 내용(✅ 체크포인트), 하단 티커($)+해시태그(#)
+    - ★ 중요: 주식 관련 뉴스라면 해시태그에 #주식 반드시 포함.
     [작성 규칙 2: 인포그래픽 이미지]
     - ---IMAGE--- 아래 작성.
     - 구성: 첫 줄 강렬한 한글 제목(핵심 수치 포함, 이모지X). 나머지 핵심 요약 7문장 이내.
@@ -235,16 +235,15 @@ def summarize_news(target_model, title, link, content_text=""):
     return None, None, None
 
 # ==========================================
-# 6. 기록 관리 (최대 2000개 유지 & 중복 검사)
+# 6. 기록 관리 (최대 1000개 유지 & 중복 검사)
 # ==========================================
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
-    # 읽어올 때 공백 제거
     with open(filename, 'r', encoding='utf-8') as f: return [line.strip() for line in f.readlines()]
 
 def save_processed_link(filename, link):
     links = get_processed_links(filename)
-    clean_link = link.strip() # ★ 저장할 때도 공백 제거
+    clean_link = link.strip()
     if clean_link not in links:
         links.append(clean_link)
         if len(links) > MAX_HISTORY: links = links[-MAX_HISTORY:]
@@ -291,7 +290,6 @@ if __name__ == "__main__":
             continue
 
         processed_links = get_processed_links(filename)
-        # ★ 링크 비교 시 공백 제거 후 비교 (안전장치)
         if news.link.strip() in processed_links: 
             print("이미 처리된 링크 (동일 URL)"); continue
 
@@ -319,7 +317,13 @@ if __name__ == "__main__":
             try:
                 media_id = None
                 if image_file: media = api.media_upload(image_file); media_id = media.media_id
+                
                 final_tweet = body_text if not final_source_name else f"{body_text}\n\n출처: {final_source_name}"
+                
+                # ★ [추가] 주식 카테고리라면 #주식 해시태그 강제 추가
+                if "주식" in category and "#주식" not in final_tweet:
+                    final_tweet += " #주식"
+                
                 if len(final_tweet) > 12000: final_tweet = final_tweet[:11995] + "..."
                 if media_id: response = client.create_tweet(text=final_tweet, media_ids=[media_id])
                 else: response = client.create_tweet(text=final_tweet)
@@ -327,7 +331,6 @@ if __name__ == "__main__":
                 print("✅ 업로드 성공")
                 client.create_tweet(text=f"🔗 원문 기사:\n{real_link}", in_reply_to_tweet_id=tweet_id)
                 
-                # ★ 성공 시 링크 저장 (공백 제거)
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
