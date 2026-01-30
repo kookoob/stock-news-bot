@@ -200,9 +200,43 @@ def create_info_image(text_lines, source_name):
         return temp_filename
     except Exception as e: print(f"❌ 이미지 생성 에러: {e}"); return None
 
-# ★ [핵심] 가장 똑똑하고 호환성 좋은 Pro 모델로 교체
+# ★ [핵심 해결책] 사용 가능한 모델을 직접 조회해서 가져오는 함수
 def get_working_model():
-    return "gemini-1.5-pro"
+    print("🤖 사용 가능한 AI 모델 조회 중...")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            # 모델 목록 추출
+            models = [m['name'].replace('models/', '') for m in data.get('models', [])]
+            
+            # 우선순위: 1.5 Pro 계열 -> 1.5 Flash 계열 -> 구형 Pro
+            priorities = [
+                "gemini-1.5-pro",
+                "gemini-1.5-pro-latest",
+                "gemini-1.5-pro-001",
+                "gemini-1.5-flash",
+                "gemini-pro"
+            ]
+            
+            for p in priorities:
+                if p in models:
+                    print(f"✅ 모델 확정: {p}")
+                    return p
+            
+            # 우선순위 목록에 없으면, generateContent 기능이 있는 아무 모델이나 선택
+            for m in data.get('models', []):
+                if 'generateContent' in m.get('supportedGenerationMethods', []):
+                    found_model = m['name'].replace('models/', '')
+                    print(f"⚠️ 우선순위 모델 없음. 대체 모델 사용: {found_model}")
+                    return found_model
+                    
+    except Exception as e:
+        print(f"⚠️ 모델 목록 조회 실패: {e}")
+    
+    # 목록 조회마저 실패하면 최후의 수단으로 gemini-pro 반환
+    return "gemini-pro"
 
 def summarize_news(target_model, title, link, content_text=""):
     prompt = f"""
@@ -224,7 +258,7 @@ def summarize_news(target_model, title, link, content_text=""):
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
     
-    # 안전 설정: 모든 필터 해제 (전쟁/금융 뉴스 등 답변 거부 방지)
+    # 안전 설정: 모든 필터 해제 (BLOCK_NONE)
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -320,7 +354,8 @@ def is_similar_title(new_title, existing_titles):
 # 7. 메인 실행 로직
 # ==========================================
 if __name__ == "__main__":
-    current_model = get_working_model() # gemini-1.5-pro
+    # ★ 모델 자동 감지 실행
+    current_model = get_working_model()
     global_titles = get_global_titles()
     
     for category, rss_url, filename, default_source_name in RSS_SOURCES:
