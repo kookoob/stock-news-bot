@@ -110,6 +110,11 @@ def is_recent_news(entry):
 
 def download_image_from_url(url, save_path="temp_origin.jpg"):
     try:
+        # ★ [추가] 구글 로고 이미지 URL 사전 차단
+        if "google" in url or "gstatic" in url:
+            print("🚫 구글 기본 이미지는 다운로드하지 않음")
+            return None
+            
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, stream=True, timeout=10)
         if response.status_code == 200:
@@ -184,9 +189,17 @@ def fetch_article_content_and_image(url):
         response = requests.get(url, headers=headers, timeout=10)
         response.encoding = response.apparent_encoding
         soup = BeautifulSoup(response.text, 'html.parser')
+        
         image_url = None
         og_image = soup.find('meta', property='og:image')
-        if og_image: image_url = og_image.get('content')
+        if og_image: 
+            found_url = og_image.get('content')
+            # ★ [핵심] 구글 로고 이미지 필터링
+            if found_url and ("google" not in found_url and "gstatic" not in found_url):
+                image_url = found_url
+            else:
+                print("🚫 구글/기본 로고 감지되어 이미지 스킵함")
+
         for script in soup(["script", "style", "header", "footer", "nav", "aside", "form"]):
             script.decompose()
         paragraphs = soup.find_all('p')
@@ -231,7 +244,7 @@ def create_info_image(text_lines, source_name):
         margin_x = 60; current_y = 40
         header_text = "MARKET RADAR"; 
         
-        # ★ [수정] source_name이 있고, "Telegram"이 아닐 때만 헤더에 추가
+        # 텔레그램이 아닐 때만 헤더에 출처 표시
         if source_name and source_name != "Telegram": 
             header_text += f" | {source_name}"
             
