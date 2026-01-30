@@ -302,7 +302,7 @@ def create_info_image(text_lines, source_name):
     except Exception as e: print(f"❌ 이미지 생성 에러: {e}"); return None
 
 # ==========================================
-# 6. AI 모델 및 프롬프트 (★괄호 제거 명령 추가★)
+# 6. AI 모델 및 프롬프트 (★중복 방지 & 괄호 제거★)
 # ==========================================
 def get_working_model():
     print("🤖 AI 모델 조회 중...")
@@ -322,7 +322,6 @@ def get_working_model():
     return "gemini-pro"
 
 def summarize_news(target_model, title, link, content_text=""):
-    # ★ [프롬프트 수정] 괄호 절대 금지 명령 추가
     prompt = f"""
     [지시사항]
     제공된 뉴스 기사를 바탕으로 트위터 게시글과 이미지 텍스트를 작성하라.
@@ -340,8 +339,7 @@ def summarize_news(target_model, title, link, content_text=""):
     5. 내용이 없거나 짧으면 제목을 풀어서 설명해라.
     6. 트위터 본문은 ✅ 이모지를 사용한 리스트 형식.
     7. **기사와 관련된 '주식 티커'와 '관련 해시태그'를 본문 하단에 포함하되, 절대 괄호()를 사용하지 말고 공백으로만 구분하라.**
-       (나쁜 예: ($TSLA) (#전기차))
-       (좋은 예: $TSLA #전기차)
+       (예: $TSLA #전기차)
     8. 이미지는 제목 제외 최대 7줄.
 
     [출력 포맷]
@@ -406,7 +404,7 @@ def summarize_news(target_model, title, link, content_text=""):
     return None, None, None
 
 # ==========================================
-# 7. 메인 실행 로직
+# 7. 메인 실행 로직 (★중복 방지 강화★)
 # ==========================================
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
@@ -428,11 +426,17 @@ def save_global_title(title):
         titles.append(clean_title)
         if len(titles) > MAX_HISTORY: titles = titles[-MAX_HISTORY:]
         with open(GLOBAL_TITLE_FILE, 'w', encoding='utf-8') as f: f.write("\n".join(titles))
+
+# ★ [핵심] 제목 유사도 검사 (중복 방지 강화)
 def is_similar_title(new_title, existing_titles):
-    clean_new = re.sub(r'\s+', ' ', new_title).strip()
+    # 특수문자 제거 후 비교 (정확도 상승)
+    clean_new = re.sub(r'[^\w\s]', '', new_title).strip()
     for old_title in existing_titles:
-        if SequenceMatcher(None, clean_new, old_title).ratio() > 0.6: 
-            print(f"🚫 중복 감지: {clean_new}"); return True
+        clean_old = re.sub(r'[^\w\s]', '', old_title).strip()
+        # 0.55 이상이면 중복으로 간주 (기준 강화)
+        if SequenceMatcher(None, clean_new, clean_old).ratio() > 0.55: 
+            print(f"🚫 중복 감지(Skip): {clean_new[:30]}... == {clean_old[:30]}...")
+            return True
     return False
 
 if __name__ == "__main__":
@@ -461,6 +465,7 @@ if __name__ == "__main__":
         if news.link.strip() in processed_links: 
             print("💰 이미 처리된 링크"); continue
 
+        # ★ 중복 검사 실행
         check_title = news.title if news.title else (news.description[:50] if hasattr(news, 'description') else "")
         if is_similar_title(check_title, global_titles):
             save_processed_link(filename, news.link); continue
