@@ -67,7 +67,7 @@ RSS_SOURCES = [
     ("한국주식(연합)", "https://www.yna.co.kr/rss/economy.xml", "last_link_yna.txt", "연합뉴스")
 ]
 
-# 기억 용량 2000개 (중복 방지 강화)
+# 기억 용량 2000개
 MAX_HISTORY = 2000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
@@ -90,10 +90,9 @@ def is_recent_news(entry):
         return True
 
 # ==========================================
-# 5. 이미지 및 AI 관련 함수 (디자인 업그레이드 버전)
+# 5. 이미지 및 AI 관련 함수
 # ==========================================
 def create_gradient_background(width, height, start_color, end_color):
-    """세련된 수직 그라데이션 배경 생성 함수"""
     base = Image.new('RGB', (width, height), start_color)
     top = Image.new('RGB', (width, height), end_color)
     mask = Image.new('L', (width, height))
@@ -108,30 +107,23 @@ def create_info_image(text_lines, source_name):
     try:
         width, height = 1200, 675
         
-        # --- 🎨 디자인 색상 팔레트 ---
-        bg_start = (10, 25, 45)   # 깊은 네이비 (상단)
-        bg_end = (20, 40, 70)     # 밝은 네이비 (하단)
-        text_white = (245, 245, 250) # 부드러운 흰색
-        text_gray = (180, 190, 210)  # 밝은 회색 (보조 텍스트)
-        accent_cyan = (0, 220, 255)  # 형광 하늘색 (강조)
-        title_box_bg = (0, 0, 0, 80) # 제목 배경 반투명 박스 (RGBA)
+        bg_start = (10, 25, 45)
+        bg_end = (20, 40, 70)
+        text_white = (245, 245, 250)
+        text_gray = (180, 190, 210)
+        accent_cyan = (0, 220, 255)
+        title_box_bg = (0, 0, 0, 80)
 
-        # 1. 그라데이션 배경 생성
         image = create_gradient_background(width, height, bg_start, bg_end)
-        draw = ImageDraw.Draw(image, 'RGBA') # RGBA 모드로 그리기
+        draw = ImageDraw.Draw(image, 'RGBA')
 
-        # 2. 폰트 로드 (준비물에서 준비한 두꺼운/일반 폰트)
         try:
-            # 제목용 두꺼운 폰트
             font_title_main = ImageFont.truetype("font_bold.ttf", 60) 
-            # 본문용 일반 폰트
             font_body = ImageFont.truetype("font_reg.ttf", 34)
-            # 상단 헤더용 작은 폰트
             font_header = ImageFont.truetype("font_bold.ttf", 26)
-             # 날짜용 작은 폰트
             font_date = ImageFont.truetype("font_reg.ttf", 26)
         except:
-            print("⚠️ 새 폰트 파일(font_bold.ttf, font_reg.ttf)을 찾을 수 없습니다. 기존 font.ttf로 시도합니다.")
+            print("⚠️ 폰트 로드 실패, 기본 폰트 사용")
             try:
                 font_title_main = ImageFont.truetype("font.ttf", 60)
                 font_body = ImageFont.truetype("font.ttf", 34)
@@ -142,12 +134,9 @@ def create_info_image(text_lines, source_name):
         margin_x = 60
         current_y = 40
 
-        # --- 상단 헤더 (Market Radar | 날짜) ---
         header_text = "MARKET RADAR"
-        if source_name:
-            header_text += f" | {source_name}"
+        if source_name: header_text += f" | {source_name}"
         
-        # 헤더에 작은 포인트 아이콘 그리기 (파란 점)
         draw.ellipse([(margin_x, current_y+8), (margin_x+12, current_y+20)], fill=accent_cyan)
         draw.text((margin_x + 25, current_y), header_text, font=font_header, fill=accent_cyan)
 
@@ -155,82 +144,82 @@ def create_info_image(text_lines, source_name):
         now = datetime.now(KST)
         date_str = f"{now.year}.{now.month:02d}.{now.day:02d} | @marketradar0"
         
-        # 날짜 오른쪽 정렬 계산
         date_bbox = draw.textbbox((0, 0), date_str, font=font_date)
         date_width = date_bbox[2] - date_bbox[0]
         draw.text((width - margin_x - date_width, current_y), date_str, font=font_date, fill=text_gray)
         
-        current_y += 70 # 헤더 아래 여백
+        current_y += 70
 
-        # --- 메인 콘텐츠 영역 ---
         for i, line in enumerate(text_lines):
             line = line.strip().replace("**", "").replace("##", "")
             if not line: continue
 
             if i == 0: 
-                # ★ 첫 줄: 메인 제목 (강조 박스 + 큰 폰트)
-                wrapped_title = textwrap.wrap(line, width=20) # 제목 줄바꿈 폭 조절
-                
-                # 제목 박스 높이 계산
+                wrapped_title = textwrap.wrap(line, width=20)
                 title_box_height = len(wrapped_title) * 85 + 30
-                # 반투명 제목 배경 박스 그리기
                 draw.rectangle([(margin_x - 20, current_y), (width - margin_x + 20, current_y + title_box_height)], fill=title_box_bg)
                 
-                current_y += 20 # 박스 내부 패딩
+                current_y += 20
                 for wl in wrapped_title:
                     draw.text((margin_x, current_y), wl, font=font_title_main, fill=text_white)
                     current_y += 85
-                current_y += 40 # 제목 아래 여백
-                
+                current_y += 40
             else: 
-                # ★ 나머지 줄: 본문 요약 (세련된 불릿 포인트)
-                # 세련된 화살표 모양 불릿 (►)
                 bullet_text = "►"
                 draw.text((margin_x, current_y + 2), bullet_text, font=font_header, fill=accent_cyan)
                 
-                wrapped_body = textwrap.wrap(line, width=40) # 본문 줄바꿈 폭 조절
+                wrapped_body = textwrap.wrap(line, width=40)
                 for wl in wrapped_body:
                     draw.text((margin_x + 35, current_y), wl, font=font_body, fill=text_white)
-                    current_y += 48 # 줄간격
-                current_y += 15 # 문단 간격
+                    current_y += 48
+                current_y += 15
 
-            if current_y > height - 60: break # 높이 초과 시 중단
+            if current_y > height - 60: break 
 
-        # 하단에 얇은 강조선 하나 추가
         draw.rectangle([(margin_x, height - 20), (width - margin_x, height - 18)], fill=accent_cyan)
 
         temp_filename = "temp_card_16_9.png"
-        image.convert("RGB").save(temp_filename) # 저장할 때는 RGB로 변환
+        image.convert("RGB").save(temp_filename)
         return temp_filename
     except Exception as e:
         print(f"❌ 이미지 생성 에러: {e}")
         return None
 
-# ★ [비용 절감 핵심] 가장 저렴한 모델(Flash) 강제 고정
 def get_working_model():
     return "gemini-1.5-flash"
 
 def summarize_news(target_model, title, link, content_text=""):
+    # ★ [수정됨] 환각 방지를 위한 초강력 프롬프트
     prompt = f"""
+    [역할]
+    너는 금융 팩트 체크 전문가다. 
+    제공된 [뉴스 제목]과 [뉴스 내용(Raw)]에 있는 정보만 사용해서 요약해야 한다.
+
+    [절대 금지 사항 - 위반 시 해고]
+    1. **숫자를 지어내지 마라.** (가격, 목표주가, 퍼센트 등)
+    2. 본문에 '목표주가'가 명시되어 있지 않은데, 네가 아는 지식으로 목표주가를 적지 마라.
+    3. 본문에 없는 내용은 추측해서 쓰지 마라.
+    4. 내용이 너무 짧아서 요약할 게 없으면, 그냥 제목만 반복해서 적어라. 거짓 정보를 보태지 마라.
+
+    [입력 데이터]
     뉴스 제목: {title}
     뉴스 링크: {link}
     뉴스 내용(Raw): {content_text}
-    분석 후 트위터 본문, 인포그래픽 텍스트, 원천 소스를 찾아줘.
-    [작성 규칙 1: 트위터 본문]
-    - ---BODY--- 아래 작성. X 프리미엄용 장문 상세 요약. 한국어 번역 필수. 명사형 종결/음슴체.
-    - 구성: 제목(이모지+한글), 상세 내용(✅ 체크포인트), 하단 티커($)+해시태그(#)
-    - ★ 중요: 주식 관련 뉴스라면 해시태그에 #주식 반드시 포함.
-    [작성 규칙 2: 인포그래픽 이미지]
-    - ---IMAGE--- 아래 작성.
-    - 구성: 첫 줄 강렬한 한글 제목(핵심 수치 포함, 이모지X). 나머지 핵심 요약 7문장 이내.
-    [작성 규칙 3: 원천 소스]
-    - ---SOURCE--- 아래 작성. 언론사 이름만. 없으면 Unknown.
-    [금지사항] 마크다운(**, ##) 금지.
+
+    [출력 양식]
+    ---BODY---
+    (트위터 본문 작성. 한국어. 명사형 종결. 본문에 없는 숫자는 절대 포함 금지.)
+    ---IMAGE---
+    (첫 줄은 제목. 나머지는 핵심 요약 3~5줄. 본문에 없는 숫자 절대 금지.)
+    ---SOURCE---
+    (언론사 이름)
     """
+    
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
     data = {"contents": [{"parts": [{"text": prompt}]}], "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]}
     headers = {'Content-Type': 'application/json'}
-    for _ in range(2): # 재시도 횟수도 2회로 줄여 비용 방어
+    
+    for _ in range(2): 
         try:
             response = requests.post(url, headers=headers, json=data)
             if response.status_code == 200:
@@ -256,7 +245,7 @@ def summarize_news(target_model, title, link, content_text=""):
     return None, None, None
 
 # ==========================================
-# 6. 기록 관리 (최대 2000개)
+# 6. 기록 관리
 # ==========================================
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
@@ -291,10 +280,9 @@ def is_similar_title(new_title, existing_titles):
     return False
 
 # ==========================================
-# 7. 메인 실행 로직 (★ 비용 절감 로직 적용)
+# 7. 메인 실행 로직
 # ==========================================
 if __name__ == "__main__":
-    # ★ 모델 고정 (Flash)
     current_model = "gemini-1.5-flash"
     global_titles = get_global_titles()
     
@@ -307,26 +295,21 @@ if __name__ == "__main__":
             news = feed.entries[0]
         except: print("RSS 파싱 실패"); continue
         
-        # 6시간 이내 체크
-        if not is_recent_news(news):
-            continue
+        if not is_recent_news(news): continue
 
-        # ★ [비용 절감 1] 링크 중복 시 API 호출 없이 즉시 종료
         processed_links = get_processed_links(filename)
         if news.link.strip() in processed_links: 
             print("💰 [비용 절감] 이미 처리된 링크. API 호출 생략."); continue
 
         check_title = news.title if news.title else (news.description[:50] if hasattr(news, 'description') else "")
         
-        # ★ [비용 절감 2] 제목 중복 시 API 호출 없이 즉시 종료
         if is_similar_title(check_title, global_titles):
             print("💰 [비용 절감] 중복 내용 감지. API 호출 생략."); 
-            save_processed_link(filename, news.link); # 링크만 저장해둠
+            save_processed_link(filename, news.link); 
             continue
 
         print(f"✨ 새 뉴스 발견 (AI 분석 시작): {news.title}")
         
-        # --- 여기서부터 돈이 나가는 구간 ---
         real_link = news.link
         content_for_ai = ""
         if hasattr(news, 'description'):
@@ -343,22 +326,26 @@ if __name__ == "__main__":
             
             try:
                 media_id = None
-                if image_file: media = api.media_upload(image_file); media_id = media.media_id
+                if image_file: 
+                    print("📤 미디어 업로드 중...")
+                    media = api.media_upload(image_file)
+                    media_id = media.media_id
                 
-                final_tweet = body_text if not final_source_name else f"{body_text}\n\n출처: {final_source_name}"
+                final_tweet = body_text
                 
-                # #주식 해시태그 추가
-                if "주식" in category and "#주식" not in final_tweet:
-                    final_tweet += " #주식"
+                if final_source_name: final_tweet += f"\n\n출처: {final_source_name}"
+                if "주식" in category and "#주식" not in final_tweet: final_tweet += " #주식"
                 
-                if len(final_tweet) > 12000: final_tweet = final_tweet[:11995] + "..."
+                # ★ [수정] 본문 끝에 링크 추가
+                final_tweet += f"\n\n🔗 원문: {real_link}"
+
+                if len(final_tweet) > 11500: final_tweet = final_tweet[:11495] + "..."
+
                 if media_id: response = client.create_tweet(text=final_tweet, media_ids=[media_id])
                 else: response = client.create_tweet(text=final_tweet)
-                tweet_id = response.data['id']
-                print("✅ 업로드 성공")
-                client.create_tweet(text=f"🔗 원문 기사:\n{real_link}", in_reply_to_tweet_id=tweet_id)
                 
-                # 성공 후 기록 저장
+                print("✅ 업로드 성공")
+                
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
@@ -366,4 +353,3 @@ if __name__ == "__main__":
             if image_file and os.path.exists(image_file): os.remove(image_file)
         else: print("🚨 요약 실패")
         time.sleep(2)
-
