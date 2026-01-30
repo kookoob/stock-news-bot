@@ -69,7 +69,7 @@ MAX_HISTORY = 2000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
 # ==========================================
-# 4. 크롤링 및 데이터 수집 함수 (정확도 유지)
+# 4. 크롤링 및 데이터 수집 함수
 # ==========================================
 class SimpleNews:
     def __init__(self, title, link, description, published_parsed=None):
@@ -125,7 +125,7 @@ def fetch_article_content(url):
     except: return None
 
 # ==========================================
-# 5. 이미지 및 AI 관련 함수 (디자인 완벽 복구)
+# 5. 이미지 생성 (7줄 허용 + 폰트 깨짐 방지 도형)
 # ==========================================
 def create_gradient_background(width, height, start_color, end_color):
     base = Image.new('RGB', (width, height), start_color)
@@ -164,6 +164,7 @@ def create_info_image(text_lines, source_name):
         margin_x = 60; current_y = 40
         header_text = "MARKET RADAR"; 
         if source_name: header_text += f" | {source_name}"
+        
         draw.ellipse([(margin_x, current_y+8), (margin_x+12, current_y+20)], fill=accent_cyan)
         draw.text((margin_x + 25, current_y), header_text, font=font_header, fill=accent_cyan)
         
@@ -179,7 +180,6 @@ def create_info_image(text_lines, source_name):
             line = line.strip().replace("**", "").replace("##", "")
             if not line: continue
             
-            # [디자인] 첫 줄은 강조 박스 제목
             if i == 0: 
                 wrapped_title = textwrap.wrap(line, width=20)
                 title_box_height = len(wrapped_title) * 85 + 30
@@ -189,23 +189,27 @@ def create_info_image(text_lines, source_name):
                     draw.text((margin_x, current_y), wl, font=font_title_main, fill=text_white)
                     current_y += 85
                 current_y += 40
-            # [디자인] 나머지는 불릿 포인트 (►)
             else: 
-                bullet_text = "►"
-                draw.text((margin_x, current_y + 2), bullet_text, font=font_header, fill=accent_cyan)
+                bullet_y = current_y + 12
+                # 불릿 포인트: 직사각형 그리기 (폰트 깨짐 원천 차단)
+                draw.rectangle([margin_x, bullet_y, margin_x + 10, bullet_y + 10], fill=accent_cyan)
+                
                 wrapped_body = textwrap.wrap(line, width=40)
                 for wl in wrapped_body:
                     draw.text((margin_x + 35, current_y), wl, font=font_body, fill=text_white)
                     current_y += 48
                 current_y += 15
-            if current_y > height - 60: break 
+            if current_y > height - 60: break # 공간 부족하면 중단
+            
         draw.rectangle([(margin_x, height - 20), (width - margin_x, height - 18)], fill=accent_cyan)
         temp_filename = "temp_card_16_9.png"
         image.convert("RGB").save(temp_filename)
         return temp_filename
     except Exception as e: print(f"❌ 이미지 생성 에러: {e}"); return None
 
-# ★ 모델 자동 감지 (Pro 우선)
+# ==========================================
+# 6. AI 모델 및 프롬프트 (조건 엄수)
+# ==========================================
 def get_working_model():
     print("🤖 사용 가능한 AI 모델 조회 중...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
@@ -219,15 +223,14 @@ def get_working_model():
                 if p in models:
                     print(f"✅ 모델 확정: {p}")
                     return p
-            # 차선책
             for m in data.get('models', []):
                 if 'generateContent' in m.get('supportedGenerationMethods', []):
                     return m['name'].replace('models/', '')
     except: pass
     return "gemini-pro"
 
-# ★ [핵심] 프롬프트 예전 버전으로 원복 (체크리스트 형식)
 def summarize_news(target_model, title, link, content_text=""):
+    # ★ [수정] 제한 조건 명확화: 상세히 쓰되 X Premium 제한 고려
     prompt = f"""
     뉴스 제목: {title}
     뉴스 링크: {link}
@@ -237,16 +240,17 @@ def summarize_news(target_model, title, link, content_text=""):
     [필수 규칙]
     1. 본문 내용을 기반으로 작성하되, 없는 숫자는 지어내지 말 것.
     2. 말투는 명사형 종결(음슴체).
-    3. 아래 형식을 엄격하게 준수할 것.
+    3. **트위터 본문은 'X Premium' 기준에 맞춰 상세하게 작성하되, 너무 장황하지 않게 핵심을 모두 포함할 것.**
+    4. **이미지는 제목 제외 최대 7줄까지 작성 가능.** (내용이 많으면 7줄까지 꽉 채울 것)
 
     [작성 규칙 1: 트위터 본문]
     - ---BODY--- 아래 작성.
     - 구성: 
       (이모지) 제목
       
-      ✅ (핵심 내용 1 - 수치 포함)
-      ✅ (핵심 내용 2)
-      ✅ (핵심 내용 3)
+      ✅ (상세 요약 1 - 수치 포함)
+      ✅ (상세 요약 2)
+      ... (내용이 있다면 계속 작성 가능, 글자수 넉넉하게 사용)
       
       (티커) (해시태그 #주식 필수)
 
@@ -256,22 +260,20 @@ def summarize_news(target_model, title, link, content_text=""):
       (강렬한 제목 - 한 줄)
       (핵심 요약 1 - 짧게)
       (핵심 요약 2 - 짧게)
-      (핵심 요약 3 - 짧게)
+      ...
+      (핵심 요약 7 - 내용이 충분하다면 최대 7개까지 작성)
 
     [작성 규칙 3: 원천 소스]
     - ---SOURCE--- 아래 작성. (언론사 이름만)
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
-    
-    # 안전 설정: 모든 필터 해제
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
     ]
-    
     data = {"contents": [{"parts": [{"text": prompt}]}], "safetySettings": safety_settings}
     headers = {'Content-Type': 'application/json'}
     
@@ -296,19 +298,20 @@ def summarize_news(target_model, title, link, content_text=""):
                 
                 body_part = body_raw.replace("**", "").replace("##", "")
                 
-                # 이미지 줄바꿈 처리 (특수문자 제거 후 리스트화)
-                image_lines = [re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►]+\s*", "", l.strip()) for l in image_raw.split('\n') if l.strip()]
+                # 이미지 텍스트 정제
+                image_lines = [re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►\■]+\s*", "", l.strip()) for l in image_raw.split('\n') if l.strip()]
                 source_name = source_raw.split('\n')[0].strip()
                 return body_part, image_lines, source_name
             else:
-                # 형식 깨졌을 때 구제책
                 body_part = full_text.strip()[:500]
                 image_lines = [title] + [body_part[:50] + "..."]
                 return body_part, image_lines, "Unknown"
         except: continue
     return None, None, None
 
-# ... (기록 관리 함수들은 동일) ...
+# ==========================================
+# 7. 메인 실행 로직
+# ==========================================
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
     with open(filename, 'r', encoding='utf-8') as f: return [line.strip() for line in f.readlines()]
@@ -336,9 +339,6 @@ def is_similar_title(new_title, existing_titles):
             print(f"🚫 중복 감지: {clean_new}"); return True
     return False
 
-# ==========================================
-# 7. 메인 실행 로직 (댓글 링크 복구)
-# ==========================================
 if __name__ == "__main__":
     current_model = get_working_model()
     global_titles = get_global_titles()
@@ -394,15 +394,12 @@ if __name__ == "__main__":
                 if final_source_name: final_tweet += f"\n\n출처: {final_source_name}"
                 if "주식" in category and "#주식" not in final_tweet: final_tweet += " #주식"
                 
-                # ★ [복구] 링크는 본문에서 제거 (댓글로 이동)
+                # ★ [안전장치] X Premium 한글 제한 고려 (약 12000자 안전 커트라인)
+                if len(final_tweet) > 12000: final_tweet = final_tweet[:11995] + "..."
 
-                if len(final_tweet) > 11500: final_tweet = final_tweet[:11495] + "..."
-
-                # 메인 트윗 전송
                 if media_id: response = client.create_tweet(text=final_tweet, media_ids=[media_id])
                 else: response = client.create_tweet(text=final_tweet)
                 
-                # ★ [복구] 댓글에 링크 달기
                 tweet_id = response.data['id']
                 print("✅ 메인 트윗 성공")
                 
