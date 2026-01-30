@@ -90,87 +90,121 @@ def is_recent_news(entry):
         return True
 
 # ==========================================
-# 5. 이미지 및 AI 관련 함수
+# 5. 이미지 및 AI 관련 함수 (디자인 업그레이드 버전)
 # ==========================================
+def create_gradient_background(width, height, start_color, end_color):
+    """세련된 수직 그라데이션 배경 생성 함수"""
+    base = Image.new('RGB', (width, height), start_color)
+    top = Image.new('RGB', (width, height), end_color)
+    mask = Image.new('L', (width, height))
+    mask_data = []
+    for y in range(height):
+        mask_data.extend([int(255 * (y / height))] * width)
+    mask.putdata(mask_data)
+    base.paste(top, (0, 0), mask)
+    return base
+
 def create_info_image(text_lines, source_name):
     try:
-        width, height = 1200, 675 
-        background_color = (18, 18, 18)
-        text_color = (235, 235, 235)
-        title_color = (255, 255, 255)
-        accent_color = (0, 190, 255)
-        image = Image.new('RGB', (width, height), background_color)
-        draw = ImageDraw.Draw(image)
-        font_path = "font.ttf"
-        try:
-            title_font = ImageFont.truetype(font_path, 54) 
-            body_font = ImageFont.truetype(font_path, 32)
-            source_font = ImageFont.truetype(font_path, 24)
-        except: return None
+        width, height = 1200, 675
+        
+        # --- 🎨 디자인 색상 팔레트 ---
+        bg_start = (10, 25, 45)   # 깊은 네이비 (상단)
+        bg_end = (20, 40, 70)     # 밝은 네이비 (하단)
+        text_white = (245, 245, 250) # 부드러운 흰색
+        text_gray = (180, 190, 210)  # 밝은 회색 (보조 텍스트)
+        accent_cyan = (0, 220, 255)  # 형광 하늘색 (강조)
+        title_box_bg = (0, 0, 0, 80) # 제목 배경 반투명 박스 (RGBA)
 
-        margin_x = 80       
-        header_y = 45
-        if source_name: header_text = f"Market Radar | {source_name}"
-        else: header_text = "Market Radar"
-        draw.text((margin_x, header_y), header_text, font=source_font, fill=accent_color)
-        draw.text((margin_x, header_y + 30), "@marketradar0", font=source_font, fill=text_color)
+        # 1. 그라데이션 배경 생성
+        image = create_gradient_background(width, height, bg_start, bg_end)
+        draw = ImageDraw.Draw(image, 'RGBA') # RGBA 모드로 그리기
+
+        # 2. 폰트 로드 (준비물에서 준비한 두꺼운/일반 폰트)
+        try:
+            # 제목용 두꺼운 폰트
+            font_title_main = ImageFont.truetype("font_bold.ttf", 60) 
+            # 본문용 일반 폰트
+            font_body = ImageFont.truetype("font_reg.ttf", 34)
+            # 상단 헤더용 작은 폰트
+            font_header = ImageFont.truetype("font_bold.ttf", 26)
+             # 날짜용 작은 폰트
+            font_date = ImageFont.truetype("font_reg.ttf", 26)
+        except:
+            print("⚠️ 새 폰트 파일(font_bold.ttf, font_reg.ttf)을 찾을 수 없습니다. 기존 font.ttf로 시도합니다.")
+            try:
+                font_title_main = ImageFont.truetype("font.ttf", 60)
+                font_body = ImageFont.truetype("font.ttf", 34)
+                font_header = ImageFont.truetype("font.ttf", 26)
+                font_date = ImageFont.truetype("font.ttf", 26)
+            except: return None
+
+        margin_x = 60
+        current_y = 40
+
+        # --- 상단 헤더 (Market Radar | 날짜) ---
+        header_text = "MARKET RADAR"
+        if source_name:
+            header_text += f" | {source_name}"
+        
+        # 헤더에 작은 포인트 아이콘 그리기 (파란 점)
+        draw.ellipse([(margin_x, current_y+8), (margin_x+12, current_y+20)], fill=accent_cyan)
+        draw.text((margin_x + 25, current_y), header_text, font=font_header, fill=accent_cyan)
 
         KST = timezone(timedelta(hours=9))
         now = datetime.now(KST)
-        date_str = f"{now.year % 100}년 {now.month}월 {now.day}일"
-        try: date_width = draw.textlength(date_str, font=source_font)
-        except AttributeError: date_width = source_font.getsize(date_str)[0]
-        draw.text((width - margin_x - date_width, header_y), date_str, font=source_font, fill=text_color)
+        date_str = f"{now.year}.{now.month:02d}.{now.day:02d} | @marketradar0"
+        
+        # 날짜 오른쪽 정렬 계산
+        date_bbox = draw.textbbox((0, 0), date_str, font=font_date)
+        date_width = date_bbox[2] - date_bbox[0]
+        draw.text((width - margin_x - date_width, current_y), date_str, font=font_date, fill=text_gray)
+        
+        current_y += 70 # 헤더 아래 여백
 
-        current_y = 140     
+        # --- 메인 콘텐츠 영역 ---
         for i, line in enumerate(text_lines):
             line = line.strip().replace("**", "").replace("##", "")
             if not line: continue
+
             if i == 0: 
-                wrapped_lines = textwrap.wrap(line, width=18)
-                for wl in wrapped_lines:
-                    draw.text((margin_x, current_y), wl, font=title_font, fill=title_color)
-                    current_y += 70
-                current_y += 25
-                draw.line([(margin_x, current_y), (width-margin_x, current_y)], fill=(80, 80, 80), width=2)
-                current_y += 45
+                # ★ 첫 줄: 메인 제목 (강조 박스 + 큰 폰트)
+                wrapped_title = textwrap.wrap(line, width=20) # 제목 줄바꿈 폭 조절
+                
+                # 제목 박스 높이 계산
+                title_box_height = len(wrapped_title) * 85 + 30
+                # 반투명 제목 배경 박스 그리기
+                draw.rectangle([(margin_x - 20, current_y), (width - margin_x + 20, current_y + title_box_height)], fill=title_box_bg)
+                
+                current_y += 20 # 박스 내부 패딩
+                for wl in wrapped_title:
+                    draw.text((margin_x, current_y), wl, font=font_title_main, fill=text_white)
+                    current_y += 85
+                current_y += 40 # 제목 아래 여백
+                
             else: 
-                bullet_size = 10
-                bullet_y = current_y + 12
-                draw.rectangle([margin_x - 25, bullet_y, margin_x - 25 + bullet_size, bullet_y + bullet_size], fill=accent_color)
-                wrapped_lines = textwrap.wrap(line, width=35)
-                for wl in wrapped_lines:
-                    draw.text((margin_x, current_y), wl, font=body_font, fill=text_color)
-                    current_y += 42
-                current_y += 10
-            if current_y > height - 50: break 
+                # ★ 나머지 줄: 본문 요약 (세련된 불릿 포인트)
+                # 세련된 화살표 모양 불릿 (►)
+                bullet_text = "►"
+                draw.text((margin_x, current_y + 2), bullet_text, font=font_header, fill=accent_cyan)
+                
+                wrapped_body = textwrap.wrap(line, width=40) # 본문 줄바꿈 폭 조절
+                for wl in wrapped_body:
+                    draw.text((margin_x + 35, current_y), wl, font=font_body, fill=text_white)
+                    current_y += 48 # 줄간격
+                current_y += 15 # 문단 간격
+
+            if current_y > height - 60: break # 높이 초과 시 중단
+
+        # 하단에 얇은 강조선 하나 추가
+        draw.rectangle([(margin_x, height - 20), (width - margin_x, height - 18)], fill=accent_cyan)
+
         temp_filename = "temp_card_16_9.png"
-        image.save(temp_filename)
+        image.convert("RGB").save(temp_filename) # 저장할 때는 RGB로 변환
         return temp_filename
-    except: return None
-
-def extract_image_url(entry):
-    if 'media_content' in entry:
-        media = entry.media_content[0]
-        if 'url' in media: return media['url']
-    if 'links' in entry:
-        for link in entry.links:
-            if link.get('rel') == 'enclosure' and 'image' in link.get('type', ''): return link['href']
-    if 'description' in entry:
-        urls = re.findall(r'<img[^>]+src="([^">]+)"', entry.description)
-        if urls: return urls[0]
-    return None
-
-def download_image(url):
-    try:
-        response = requests.get(url, stream=True, timeout=10)
-        if response.status_code == 200:
-            filename = "temp_downloaded_image.jpg"
-            with open(filename, 'wb') as out_file:
-                shutil.copyfileobj(response.raw, out_file)
-            return filename
-    except: pass
-    return None
+    except Exception as e:
+        print(f"❌ 이미지 생성 에러: {e}")
+        return None
 
 # ★ [비용 절감 핵심] 가장 저렴한 모델(Flash) 강제 고정
 def get_working_model():
@@ -332,3 +366,4 @@ if __name__ == "__main__":
             if image_file and os.path.exists(image_file): os.remove(image_file)
         else: print("🚨 요약 실패")
         time.sleep(2)
+
