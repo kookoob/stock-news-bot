@@ -69,7 +69,7 @@ MAX_HISTORY = 2000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 
 # ==========================================
-# 4. 크롤링 및 데이터 수집 함수
+# 4. 크롤링 및 데이터 수집 함수 (정확도 유지)
 # ==========================================
 class SimpleNews:
     def __init__(self, title, link, description, published_parsed=None):
@@ -125,7 +125,7 @@ def fetch_article_content(url):
     except: return None
 
 # ==========================================
-# 5. 이미지 및 AI 관련 함수
+# 5. 이미지 및 AI 관련 함수 (디자인 완벽 복구)
 # ==========================================
 def create_gradient_background(width, height, start_color, end_color):
     base = Image.new('RGB', (width, height), start_color)
@@ -143,8 +143,10 @@ def create_info_image(text_lines, source_name):
         bg_start = (10, 25, 45); bg_end = (20, 40, 70)
         text_white = (245, 245, 250); text_gray = (180, 190, 210)
         accent_cyan = (0, 220, 255); title_box_bg = (0, 0, 0, 80)
+        
         image = create_gradient_background(width, height, bg_start, bg_end)
         draw = ImageDraw.Draw(image, 'RGBA')
+        
         try:
             font_title_main = ImageFont.truetype("font_bold.ttf", 60)
             font_body = ImageFont.truetype("font_reg.ttf", 34)
@@ -176,6 +178,8 @@ def create_info_image(text_lines, source_name):
         for i, line in enumerate(text_lines):
             line = line.strip().replace("**", "").replace("##", "")
             if not line: continue
+            
+            # [디자인] 첫 줄은 강조 박스 제목
             if i == 0: 
                 wrapped_title = textwrap.wrap(line, width=20)
                 title_box_height = len(wrapped_title) * 85 + 30
@@ -185,6 +189,7 @@ def create_info_image(text_lines, source_name):
                     draw.text((margin_x, current_y), wl, font=font_title_main, fill=text_white)
                     current_y += 85
                 current_y += 40
+            # [디자인] 나머지는 불릿 포인트 (►)
             else: 
                 bullet_text = "►"
                 draw.text((margin_x, current_y + 2), bullet_text, font=font_header, fill=accent_cyan)
@@ -200,7 +205,7 @@ def create_info_image(text_lines, source_name):
         return temp_filename
     except Exception as e: print(f"❌ 이미지 생성 에러: {e}"); return None
 
-# ★ [핵심 해결책] 사용 가능한 모델을 직접 조회해서 가져오는 함수
+# ★ 모델 자동 감지 (Pro 우선)
 def get_working_model():
     print("🤖 사용 가능한 AI 모델 조회 중...")
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
@@ -208,57 +213,58 @@ def get_working_model():
         response = requests.get(url)
         if response.status_code == 200:
             data = response.json()
-            # 모델 목록 추출
             models = [m['name'].replace('models/', '') for m in data.get('models', [])]
-            
-            # 우선순위: 1.5 Pro 계열 -> 1.5 Flash 계열 -> 구형 Pro
-            priorities = [
-                "gemini-1.5-pro",
-                "gemini-1.5-pro-latest",
-                "gemini-1.5-pro-001",
-                "gemini-1.5-flash",
-                "gemini-pro"
-            ]
-            
+            priorities = ["gemini-1.5-pro", "gemini-1.5-pro-latest", "gemini-1.5-pro-001", "gemini-pro"]
             for p in priorities:
                 if p in models:
                     print(f"✅ 모델 확정: {p}")
                     return p
-            
-            # 우선순위 목록에 없으면, generateContent 기능이 있는 아무 모델이나 선택
+            # 차선책
             for m in data.get('models', []):
                 if 'generateContent' in m.get('supportedGenerationMethods', []):
-                    found_model = m['name'].replace('models/', '')
-                    print(f"⚠️ 우선순위 모델 없음. 대체 모델 사용: {found_model}")
-                    return found_model
-                    
-    except Exception as e:
-        print(f"⚠️ 모델 목록 조회 실패: {e}")
-    
-    # 목록 조회마저 실패하면 최후의 수단으로 gemini-pro 반환
+                    return m['name'].replace('models/', '')
+    except: pass
     return "gemini-pro"
 
+# ★ [핵심] 프롬프트 예전 버전으로 원복 (체크리스트 형식)
 def summarize_news(target_model, title, link, content_text=""):
     prompt = f"""
-    [역할] 금융 뉴스 요약 전문가.
-    [입력 뉴스]
-    제목: {title}
-    내용: {content_text}
+    뉴스 제목: {title}
+    뉴스 링크: {link}
+    뉴스 내용(Raw): {content_text}
+
+    [역할] 금융 뉴스 팩트체크 전문가.
     [필수 규칙]
-    1. 서론(예: "네, 요약해드릴게요") 절대 금지. 바로 결과만 출력.
-    2. 본문에 없는 숫자는 지어내지 말 것.
-    [출력 형식 - 반드시 이 틀을 지킬 것]
-    ---BODY---
-    (트위터 본문)
-    ---IMAGE---
-    (이미지 텍스트)
-    ---SOURCE---
-    (언론사)
+    1. 본문 내용을 기반으로 작성하되, 없는 숫자는 지어내지 말 것.
+    2. 말투는 명사형 종결(음슴체).
+    3. 아래 형식을 엄격하게 준수할 것.
+
+    [작성 규칙 1: 트위터 본문]
+    - ---BODY--- 아래 작성.
+    - 구성: 
+      (이모지) 제목
+      
+      ✅ (핵심 내용 1 - 수치 포함)
+      ✅ (핵심 내용 2)
+      ✅ (핵심 내용 3)
+      
+      (티커) (해시태그 #주식 필수)
+
+    [작성 규칙 2: 인포그래픽 이미지 텍스트]
+    - ---IMAGE--- 아래 작성.
+    - 구성:
+      (강렬한 제목 - 한 줄)
+      (핵심 요약 1 - 짧게)
+      (핵심 요약 2 - 짧게)
+      (핵심 요약 3 - 짧게)
+
+    [작성 규칙 3: 원천 소스]
+    - ---SOURCE--- 아래 작성. (언론사 이름만)
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
     
-    # 안전 설정: 모든 필터 해제 (BLOCK_NONE)
+    # 안전 설정: 모든 필터 해제
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -266,30 +272,17 @@ def summarize_news(target_model, title, link, content_text=""):
         {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
     ]
     
-    data = {
-        "contents": [{"parts": [{"text": prompt}]}], 
-        "safetySettings": safety_settings
-    }
+    data = {"contents": [{"parts": [{"text": prompt}]}], "safetySettings": safety_settings}
     headers = {'Content-Type': 'application/json'}
     
     for _ in range(2): 
         try:
             response = requests.post(url, headers=headers, json=data)
+            if response.status_code != 200: continue
             
-            if response.status_code != 200:
-                print(f"❌ API 응답 코드 에러: {response.status_code}, 내용: {response.text}")
-                continue
-
             try:
-                candidates = response.json().get('candidates', [])
-                if not candidates:
-                    print(f"❌ AI 답변 거부 (Safety/Other): {response.json()}")
-                    continue
-                
-                full_text = candidates[0]['content']['parts'][0]['text']
-            except Exception as e:
-                print(f"❌ API 응답 분석 실패: {e} | 원본: {response.text}")
-                continue
+                full_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+            except: continue
 
             if "---BODY---" in full_text and "---IMAGE---" in full_text:
                 parts = full_text.split("---IMAGE---")
@@ -300,28 +293,25 @@ def summarize_news(target_model, title, link, content_text=""):
                     image_raw = img_parts[0].strip()
                     source_raw = img_parts[1].strip()
                 else: image_raw = remaining.strip(); source_raw = "Unknown"
+                
                 body_part = body_raw.replace("**", "").replace("##", "")
+                
+                # 이미지 줄바꿈 처리 (특수문자 제거 후 리스트화)
                 image_lines = [re.sub(r"^[\-\*\•\·\✅\✔\▪\▫\►]+\s*", "", l.strip()) for l in image_raw.split('\n') if l.strip()]
                 source_name = source_raw.split('\n')[0].strip()
                 return body_part, image_lines, source_name
-            else: 
-                print("⚠️ 형식 오류 감지 -> 강제 변환")
-                body_part = full_text.replace("---BODY---", "").replace("---IMAGE---", "").strip()[:500]
+            else:
+                # 형식 깨졌을 때 구제책
+                body_part = full_text.strip()[:500]
                 image_lines = [title] + [body_part[:50] + "..."]
                 return body_part, image_lines, "Unknown"
-
-        except Exception as e: 
-            print(f"❌ 연결 에러: {e}")
-            return None, None, None
+        except: continue
     return None, None, None
 
-# ==========================================
-# 6. 기록 관리
-# ==========================================
+# ... (기록 관리 함수들은 동일) ...
 def get_processed_links(filename):
     if not os.path.exists(filename): return []
     with open(filename, 'r', encoding='utf-8') as f: return [line.strip() for line in f.readlines()]
-
 def save_processed_link(filename, link):
     links = get_processed_links(filename)
     clean_link = link.strip()
@@ -329,11 +319,9 @@ def save_processed_link(filename, link):
         links.append(clean_link)
         if len(links) > MAX_HISTORY: links = links[-MAX_HISTORY:]
         with open(filename, 'w', encoding='utf-8') as f: f.write("\n".join(links))
-
 def get_global_titles():
     if not os.path.exists(GLOBAL_TITLE_FILE): return []
     with open(GLOBAL_TITLE_FILE, 'r', encoding='utf-8') as f: return [line.strip() for line in f.readlines()]
-
 def save_global_title(title):
     titles = get_global_titles()
     clean_title = re.sub(r'\s+', ' ', title).strip()
@@ -341,20 +329,17 @@ def save_global_title(title):
         titles.append(clean_title)
         if len(titles) > MAX_HISTORY: titles = titles[-MAX_HISTORY:]
         with open(GLOBAL_TITLE_FILE, 'w', encoding='utf-8') as f: f.write("\n".join(titles))
-
 def is_similar_title(new_title, existing_titles):
     clean_new = re.sub(r'\s+', ' ', new_title).strip()
     for old_title in existing_titles:
         if SequenceMatcher(None, clean_new, old_title).ratio() > 0.6: 
-            print(f"🚫 중복 감지 (유사도): {clean_new} <-> {old_title}")
-            return True
+            print(f"🚫 중복 감지: {clean_new}"); return True
     return False
 
 # ==========================================
-# 7. 메인 실행 로직
+# 7. 메인 실행 로직 (댓글 링크 복구)
 # ==========================================
 if __name__ == "__main__":
-    # ★ 모델 자동 감지 실행
     current_model = get_working_model()
     global_titles = get_global_titles()
     
@@ -364,31 +349,29 @@ if __name__ == "__main__":
         news = None
         if "t.me/s/" in rss_url:
              news = fetch_telegram_latest(rss_url)
-             if not news: print("텔레그램 새 메시지 없음"); continue
+             if not news: print("텔레그램 없음"); continue
         else:
             try:
                 feed = feedparser.parse(rss_url)
                 if not feed.entries: print("뉴스 없음"); continue
                 news = feed.entries[0]
                 if not is_recent_news(news): continue 
-            except: print("RSS 파싱 실패"); continue
+            except: print("RSS 실패"); continue
 
         processed_links = get_processed_links(filename)
         if news.link.strip() in processed_links: 
-            print("💰 [비용 절감] 이미 처리된 링크. API 호출 생략."); continue
+            print("💰 이미 처리된 링크"); continue
 
         check_title = news.title if news.title else (news.description[:50] if hasattr(news, 'description') else "")
         if is_similar_title(check_title, global_titles):
-            print("💰 [비용 절감] 중복 내용 감지. API 호출 생략."); 
             save_processed_link(filename, news.link); continue
 
-        print(f"✨ 새 뉴스 발견: {news.title}")
+        print(f"✨ 새 뉴스: {news.title}")
         
         real_link = news.link
-        if "t.me/s/" in rss_url:
-            scraped_content = news.description 
+        if "t.me/s/" in rss_url: scraped_content = news.description 
         else:
-            print("🌍 기사 본문 크롤링 중...")
+            print("🌍 크롤링 중...")
             rss_summary = news.description if hasattr(news, 'description') else ""
             scraped_text = fetch_article_content(real_link)
             scraped_content = scraped_text if scraped_text else rss_summary
@@ -403,21 +386,32 @@ if __name__ == "__main__":
             try:
                 media_id = None
                 if image_file: 
-                    print("📤 미디어 업로드 중...")
+                    print("📤 미디어 업로드...")
                     media = api.media_upload(image_file)
                     media_id = media.media_id
                 
                 final_tweet = body_text
                 if final_source_name: final_tweet += f"\n\n출처: {final_source_name}"
                 if "주식" in category and "#주식" not in final_tweet: final_tweet += " #주식"
-                final_tweet += f"\n\n🔗 원문: {real_link}"
+                
+                # ★ [복구] 링크는 본문에서 제거 (댓글로 이동)
 
                 if len(final_tweet) > 11500: final_tweet = final_tweet[:11495] + "..."
 
+                # 메인 트윗 전송
                 if media_id: response = client.create_tweet(text=final_tweet, media_ids=[media_id])
                 else: response = client.create_tweet(text=final_tweet)
                 
-                print("✅ 업로드 성공")
+                # ★ [복구] 댓글에 링크 달기
+                tweet_id = response.data['id']
+                print("✅ 메인 트윗 성공")
+                
+                try:
+                    client.create_tweet(text=f"🔗 원문 기사:\n{real_link}", in_reply_to_tweet_id=tweet_id)
+                    print("✅ 댓글 링크 성공")
+                except Exception as e:
+                    print(f"⚠️ 댓글 실패: {e}")
+
                 save_processed_link(filename, news.link)
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
