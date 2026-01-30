@@ -110,7 +110,7 @@ def is_recent_news(entry):
 
 def download_image_from_url(url, save_path="temp_origin.jpg"):
     try:
-        # ★ [추가] 구글 로고 이미지 URL 사전 차단
+        # 구글 로고 필터링
         if "google" in url or "gstatic" in url:
             print("🚫 구글 기본 이미지는 다운로드하지 않음")
             return None
@@ -194,7 +194,6 @@ def fetch_article_content_and_image(url):
         og_image = soup.find('meta', property='og:image')
         if og_image: 
             found_url = og_image.get('content')
-            # ★ [핵심] 구글 로고 이미지 필터링
             if found_url and ("google" not in found_url and "gstatic" not in found_url):
                 image_url = found_url
             else:
@@ -244,7 +243,7 @@ def create_info_image(text_lines, source_name):
         margin_x = 60; current_y = 40
         header_text = "MARKET RADAR"; 
         
-        # 텔레그램이 아닐 때만 헤더에 출처 표시
+        # 텔레그램은 상단 출처 표시 생략
         if source_name and source_name != "Telegram": 
             header_text += f" | {source_name}"
             
@@ -502,8 +501,9 @@ if __name__ == "__main__":
                 save_global_title(check_title)
                 global_titles.append(re.sub(r'\s+', ' ', check_title).strip())
                 
-                print("⏳ 도배 방지: 2분 대기...")
-                time.sleep(120)
+                # ★ [수정] 대기 시간 3분 (180초)
+                print("⏳ 도배 방지: 3분 대기...")
+                time.sleep(180)
 
             except Exception as e: print(f"❌ 전송 실패: {e}")
             
