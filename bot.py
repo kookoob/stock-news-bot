@@ -45,9 +45,12 @@ except Exception as e:
     print(f"⚠️ 트위터 클라이언트 연결 실패: {e}")
 
 # ==========================================
-# 3. 뉴스 소스 리스트
+# 3. 뉴스 소스 리스트 (블룸버그 추가됨)
 # ==========================================
 RSS_SOURCES = [
+    # ★ [추가] 블룸버그 (구글뉴스 필터링 사용)
+    ("미국주식(블룸버그)", "https://news.google.com/rss/search?q=site:bloomberg.com+when:1d&hl=en-US&gl=US&ceid=US:en", "last_link_bloomberg.txt", "Bloomberg"),
+
     ("속보(텔레그램)", "https://t.me/s/bornlupin", "last_link_bornlupin.txt", "Telegram"),
     ("국제속보(연합)", "https://www.yna.co.kr/rss/international.xml", "last_link_yna_world.txt", "연합뉴스"),
     ("전쟁속보(구글)", "https://news.google.com/rss/search?q=전쟁+속보+미국+이란&hl=ko&gl=KR&ceid=KR:ko", "last_link_google_war.txt", "Google News"),
@@ -209,7 +212,7 @@ def create_info_image(text_lines, source_name):
     except Exception as e: print(f"❌ 이미지 생성 에러: {e}"); return None
 
 # ==========================================
-# 6. AI 모델 및 프롬프트 (조건 엄수: 티커/해시태그 포함)
+# 6. AI 모델 및 프롬프트 (음슴체 강제, 마켓레이더 고정)
 # ==========================================
 def get_working_model():
     print("🤖 사용 가능한 AI 모델 조회 중...")
