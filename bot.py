@@ -403,7 +403,7 @@ if __name__ == "__main__":
     weekday_kor = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()]
     time_str = now.strftime(f"%m월 %d일 ({weekday_kor}) %H:%M")
     
-    # ★ [수정] 트윗 본문 헤더 (심플한 뉴스레터 스타일)
+    # 트윗 본문 헤더
     tweet_text_body = f"📅 {time_str} 기준 | 주요 소식 정리\n\n"
     emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
     
@@ -447,14 +447,29 @@ if __name__ == "__main__":
                 print(f"  ❌ 업로드 실패: {e}")
 
     if media_ids:
-        # ★ [수정] 해시태그 수정
         tweet_text_body += "\n#미국주식 #속보 #경제 #Koob #@kimyg002 $SPY $QQQ"
         
         if len(tweet_text_body) > 24000: tweet_text_body = tweet_text_body[:23995] + "..."
         
         try:
-            client.create_tweet(text=tweet_text_body, media_ids=media_ids)
-            print("🚀 [성공] Premium+ 장문 리포트 전송 완료!")
+            # 1. 메인 트윗 게시
+            response = client.create_tweet(text=tweet_text_body, media_ids=media_ids)
+            print("🚀 [성공] 뉴스 리포트 전송 완료!")
+            
+            # 2. 메인 트윗 ID 추출
+            main_tweet_id = response.data['id']
+            
+            # 3. 링크 댓글(Reply) 생성
+            reply_text = "🔗 기사 원문 링크\n\n"
+            for i, news in enumerate(selected_news):
+                # 4개보다 적게 처리됐을 수도 있으므로 인덱스 체크
+                if i < processed_count:
+                    reply_text += f"{emojis[i]} {news.link}\n"
+            
+            # 4. 댓글 게시
+            client.create_tweet(text=reply_text, in_reply_to_tweet_id=main_tweet_id)
+            print("🔗 [성공] 원문 링크 댓글 달기 완료!")
+            
         except Exception as e:
             print(f"❌ [실패] 트윗 전송 에러: {e}")
     else:
