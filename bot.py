@@ -47,10 +47,9 @@ except Exception as e:
     print(f"⚠️ 트위터 클라이언트 연결 실패: {e}")
 
 # ==========================================
-# 3. 뉴스 소스 리스트 (★ Investing.com 추가됨)
+# 3. 뉴스 소스 리스트
 # ==========================================
 RSS_SOURCES = [
-    # --- [NEW] Investing.com KR ---
     ("Investing.com(News)", "https://kr.investing.com/rss/news.rss", "last_link_inv_news.txt", "Investing.com"),
     ("Investing.com(Market)", "https://kr.investing.com/rss/market_overview.rss", "last_link_inv_market.txt", "Investing.com"),
     ("Investing.com(Forex)", "https://kr.investing.com/rss/forex.rss", "last_link_inv_forex.txt", "Investing.com"),
@@ -59,8 +58,6 @@ RSS_SOURCES = [
     ("Investing.com(Stock)", "https://kr.investing.com/rss/stock.rss", "last_link_inv_stock.txt", "Investing.com"),
     ("Investing.com(Commodities)", "https://kr.investing.com/rss/commodities.rss", "last_link_inv_comm.txt", "Investing.com"),
     ("Investing.com(Bonds)", "https://kr.investing.com/rss/bonds.rss", "last_link_inv_bonds.txt", "Investing.com"),
-
-    # --- 기존 소스 ---
     ("트럼프(TruthSocial)", "https://t.me/s/real_DonaldJTrump", "last_id_trump.txt", "Telegram"),
     ("하나차이나(China)", "https://t.me/s/HANAchina", "last_link_hana.txt", "Telegram"),
     ("마이클버리(Burry)", "https://nitter.privacydev.net/michaeljburry/rss", "last_link_burry.txt", "Michael Burry"),
@@ -271,24 +268,41 @@ def select_top_news(news_list, model_name):
     except: pass
     return news_list[:4]
 
+# ★ [수정] AI 요약 함수 (이미지용/본문용 분리 생성)
 def summarize_news_item(target_model, news_item):
     content_text = news_item.description
     if not content_text or len(content_text) < 50:
          fetched = fetch_article_content(news_item.link)
          if fetched: content_text = fetched
 
+    # ★ [핵심] 프롬프트 수정: 이미지용(짧게)과 텍스트용(길고 자세하게) 분리 요청
     prompt = f"""
     [Task]
-    Summarize the news for a Twitter post.
+    Analyze the provided news and generate two versions of summaries.
+    
     [Input]
     Title: {news_item.title}
     Source: {news_item.source_name}
-    Content: {content_text[:3000]}
+    Content: {content_text[:4000]}
+    
     [Rules]
-    1. Korean language ONLY.
-    2. Tone: Dry, objective, noun-ending (e.g. ~함).
-    3. Output: Title (1 line) + 3 Summary Points.
-    4. Max 4 lines total.
+    1. Language: **Korean ONLY**.
+    2. Terminology: Never use '전기동', always use '구리'.
+    3. Tone: Professional, objective, noun-ending (e.g., ~함, ~전망).
+    
+    [Output Format]
+    ---IMAGE---
+    (Title for Image - 1 line)
+    (Short Summary Point 1)
+    (Short Summary Point 2)
+    (Short Summary Point 3)
+    ---TEXT---
+    (Title for Text - 1 line)
+    (Detailed Analysis Point 1 - include context and background)
+    (Detailed Analysis Point 2 - explain why this matters)
+    (Detailed Analysis Point 3)
+    (Detailed Analysis Point 4)
+    (Detailed Analysis Point 5)
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
@@ -297,8 +311,22 @@ def summarize_news_item(target_model, news_item):
     try:
         response = requests.post(url, headers={'Content-Type': 'application/json'}, json=data)
         text = response.json()['candidates'][0]['content']['parts'][0]['text']
-        lines = [l.strip() for l in text.split('\n') if l.strip()]
-        return lines 
+        
+        # 결과 파싱
+        if "---IMAGE---" in text and "---TEXT---" in text:
+            parts = text.split("---TEXT---")
+            image_part = parts[0].replace("---IMAGE---", "").strip()
+            text_part = parts[1].strip()
+            
+            image_lines = [l.strip() for l in image_part.split('\n') if l.strip()]
+            text_lines = [l.strip() for l in text_part.split('\n') if l.strip()]
+            
+            return {"image": image_lines, "text": text_lines}
+        else:
+            # 포맷 안 맞으면 기본 처리
+            lines = [l.strip() for l in text.split('\n') if l.strip()]
+            return {"image": lines[:4], "text": lines}
+            
     except: return None
 
 # ==========================================
@@ -384,25 +412,35 @@ if __name__ == "__main__":
     for i, news in enumerate(selected_news):
         print(f"Processing {i+1}/{len(selected_news)}: {news.title[:20]}...")
         
-        summary_lines = summarize_news_item(current_model, news)
-        if not summary_lines: continue
+        # ★ [수정] 결과가 딕셔너리 형태 {"image": [], "text": []} 로 옴
+        result = summarize_news_item(current_model, news)
+        if not result or not result.get("image"): continue
         
-        joined_summary = " ".join(summary_lines)
+        image_lines = result["image"]
+        text_lines = result["text"]
+
+        # ★ [핵심] "전기동" -> "구리" 강제 치환 (이미지, 텍스트 모두)
+        image_lines = [l.replace("전기동", "구리") for l in image_lines]
+        text_lines = [l.replace("전기동", "구리") for l in text_lines]
+
+        # 중복 체크 (텍스트 본문 기준)
+        joined_summary = " ".join(text_lines)
         if is_duplicate(joined_summary, global_summaries):
             print("  🚫 요약 내용 중복으로 스킵")
             save_file_line(news.filename, news.link)
             continue
             
-        img_path = create_info_image(summary_lines, news.source_name, i+1)
+        # 이미지 생성 (짧은 요약 사용)
+        img_path = create_info_image(image_lines, news.source_name, i+1)
         if img_path:
             try:
                 media = api.media_upload(img_path)
                 media_ids.append(media.media_id)
                 
-                # 본문 상세 추가
-                tweet_text_body += f"{emojis[i]} {summary_lines[0]}\n" # 제목
-                for line in summary_lines[1:]:
-                    tweet_text_body += f"▫️ {line}\n" # 세부 내용
+                # 트윗 본문 생성 (긴 상세 요약 사용)
+                tweet_text_body += f"{emojis[i]} {text_lines[0]}\n" # 제목
+                for line in text_lines[1:]:
+                    tweet_text_body += f"▫️ {line}\n" # 상세 내용
                 tweet_text_body += "\n" 
                 
                 save_file_line(news.filename, news.link)
