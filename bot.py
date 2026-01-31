@@ -277,6 +277,7 @@ def summarize_news_item(target_model, news_item):
          fetched = fetch_article_content(news_item.link)
          if fetched: content_text = fetched
 
+    # ★ [핵심] 1) 라벨 금지 2) 마크다운 볼드(**) 금지 3) 축약체 사용
     prompt = f"""
     [Task]
     Analyze the provided news and generate two versions of output.
@@ -289,7 +290,10 @@ def summarize_news_item(target_model, news_item):
     [Rules]
     1. Language: **Korean ONLY**.
     2. Terminology: Never use '전기동', always use '구리'.
-    3. Tone: Professional, analytical, expert financial editor.
+    3. Tone: **Abbreviated style (e.g., ~함, ~음, ~전망)**. Short and concise.
+    4. **Forbidden:**
+       - Do NOT use labels like 'Detailed Point', 'Background:', etc.
+       - Do NOT use markdown bold syntax (**text**). Just plain text.
     
     [Output Format]
     ---IMAGE---
@@ -299,11 +303,11 @@ def summarize_news_item(target_model, news_item):
     (Short Summary 3 - 1 line)
     
     ---TEXT---
-    (Detailed Title - 1 line)
-    (Detailed Point 1: Background & Context - 1~2 sentences)
-    (Detailed Point 2: Key facts & numbers - 1~2 sentences)
-    (Detailed Point 3: Market Impact & Outlook - 1~2 sentences)
-    (Detailed Point 4: Related Stocks/Sectors - 1 sentence)
+    (Title for Text - 1 line)
+    (Core Fact 1 - 1 line, noun-ending)
+    (Core Fact 2 - 1 line, noun-ending)
+    (Market Implication - 1 line, noun-ending)
+    (Related Sectors - 1 line, noun-ending)
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
@@ -403,7 +407,6 @@ if __name__ == "__main__":
     weekday_kor = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()]
     time_str = now.strftime(f"%m월 %d일 ({weekday_kor}) %H:%M")
     
-    # 트윗 본문 헤더
     tweet_text_body = f"📅 {time_str} 기준 | 주요 소식 정리\n\n"
     emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
     
@@ -420,6 +423,9 @@ if __name__ == "__main__":
         image_lines = [l.replace("전기동", "구리") for l in image_lines]
         text_lines = [l.replace("전기동", "구리") for l in text_lines]
 
+        # ★ [안전장치] AI가 혹시나 **를 포함했으면 여기서 강제로 삭제 (청소)
+        text_lines = [l.replace("**", "").replace("##", "") for l in text_lines]
+
         joined_summary = " ".join(text_lines)
         if is_duplicate(joined_summary, global_summaries):
             print("  🚫 요약 내용 중복으로 스킵")
@@ -432,9 +438,10 @@ if __name__ == "__main__":
                 media = api.media_upload(img_path)
                 media_ids.append(media.media_id)
                 
-                tweet_text_body += f"{emojis[i]} **{text_lines[0]}**\n" 
+                # ★ [수정] 본문 생성 시 **(볼드) 문법 제거하고 순수 텍스트만 사용
+                tweet_text_body += f"{emojis[i]} {text_lines[0]}\n" # 제목
                 for line in text_lines[1:]:
-                    tweet_text_body += f"  • {line}\n" 
+                    tweet_text_body += f"  • {line}\n" # 내용
                 tweet_text_body += "\n" 
                 
                 save_file_line(news.filename, news.link)
@@ -447,26 +454,21 @@ if __name__ == "__main__":
                 print(f"  ❌ 업로드 실패: {e}")
 
     if media_ids:
-        tweet_text_body += "\n#미국주식 #속보 #경제 #Koob #@kimyg002 $SPY $QQQ"
+        # ★ [수정] 해시태그에서 아이디/Koob 삭제
+        tweet_text_body += "\n#미국주식 #속보 #경제 $SPY $QQQ"
         
         if len(tweet_text_body) > 24000: tweet_text_body = tweet_text_body[:23995] + "..."
         
         try:
-            # 1. 메인 트윗 게시
             response = client.create_tweet(text=tweet_text_body, media_ids=media_ids)
             print("🚀 [성공] 뉴스 리포트 전송 완료!")
             
-            # 2. 메인 트윗 ID 추출
             main_tweet_id = response.data['id']
-            
-            # 3. 링크 댓글(Reply) 생성
             reply_text = "🔗 기사 원문 링크\n\n"
             for i, news in enumerate(selected_news):
-                # 4개보다 적게 처리됐을 수도 있으므로 인덱스 체크
                 if i < processed_count:
                     reply_text += f"{emojis[i]} {news.link}\n"
             
-            # 4. 댓글 게시
             client.create_tweet(text=reply_text, in_reply_to_tweet_id=main_tweet_id)
             print("🔗 [성공] 원문 링크 댓글 달기 완료!")
             
