@@ -84,7 +84,7 @@ class SimpleNews:
         self.link = link
         self.description = description
         self.source_name = source_name
-        self.filename = filename # 기록용 파일명
+        self.filename = filename 
         self.published_parsed = published_parsed
 
 def is_recent_news(entry):
@@ -93,7 +93,7 @@ def is_recent_news(entry):
         published_time = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
         current_time = datetime.now(timezone.utc)
         time_diff = current_time - published_time
-        if time_diff > timedelta(hours=12): # 12시간으로 넉넉하게
+        if time_diff > timedelta(hours=12): 
             return False
         return True
     except: return True
@@ -155,7 +155,7 @@ def create_info_image(text_lines, source_name, index):
         image = create_gradient_background(width, height, bg_start, bg_end)
         draw = ImageDraw.Draw(image, 'RGBA')
         try:
-            font_title_main = ImageFont.truetype("font_bold.ttf", 55) # 폰트 크기 조정
+            font_title_main = ImageFont.truetype("font_bold.ttf", 55)
             font_body = ImageFont.truetype("font_reg.ttf", 32)
             font_header = ImageFont.truetype("font_bold.ttf", 26)
             font_date = ImageFont.truetype("font_reg.ttf", 26)
@@ -182,14 +182,13 @@ def create_info_image(text_lines, source_name, index):
         draw.text((width - margin_x - date_width, current_y), date_str, font=font_date, fill=text_gray)
         current_y += 70
         
-        # 이미지 내 텍스트 그리기
         for i, line in enumerate(text_lines):
             clean_line = re.sub(r"^[\W_]+", "", line.strip()) 
             clean_line = clean_line.replace("**", "").replace("##", "")
             if not clean_line: continue
             
-            if i == 0: # 제목
-                wrapped_title = textwrap.wrap(clean_line, width=22) # 너비 조정
+            if i == 0: 
+                wrapped_title = textwrap.wrap(clean_line, width=22)
                 title_box_height = len(wrapped_title) * 80 + 30
                 draw.rectangle([(margin_x - 20, current_y), (width - margin_x + 20, current_y + title_box_height)], fill=title_box_bg)
                 current_y += 20
@@ -197,7 +196,7 @@ def create_info_image(text_lines, source_name, index):
                     draw.text((margin_x, current_y), wl, font=font_title_main, fill=text_white)
                     current_y += 80
                 current_y += 40
-            else: # 본문
+            else: 
                 bullet_y = current_y + 12
                 draw.rectangle([margin_x, bullet_y, margin_x + 10, bullet_y + 10], fill=accent_cyan)
                 wrapped_body = textwrap.wrap(clean_line, width=42)
@@ -233,25 +232,19 @@ def get_working_model():
     except: pass
     return "gemini-pro"
 
-# [NEW] 중요도 판단 함수
 def select_top_news(news_list, model_name):
     if len(news_list) <= 4: return news_list
-    
     print(f"📊 {len(news_list)}개의 뉴스 중 Top 4 선별 중...")
     titles = [f"{i}. {n.title} (Source: {n.source_name})" for i, n in enumerate(news_list)]
     titles_text = "\n".join(titles)
     
     prompt = f"""
     You are a professional financial editor.
-    Below is a list of news items collected right now.
-    Select the **Top 4 most important news items** that have the biggest impact on the global stock market and economy.
-    
+    Select the **Top 4 most important news items** impacting the global market.
     [News List]
     {titles_text}
-    
-    [Output Format]
-    Return ONLY a JSON array of the indices (0-based) of the selected news.
-    Example: [0, 2, 5, 8]
+    [Output]
+    JSON array of indices (e.g. [0, 2, 5, 8])
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
@@ -259,19 +252,15 @@ def select_top_news(news_list, model_name):
     try:
         response = requests.post(url, headers={'Content-Type': 'application/json'}, json=data)
         text = response.json()['candidates'][0]['content']['parts'][0]['text']
-        # JSON 파싱
         match = re.search(r'\[.*\]', text, re.DOTALL)
         if match:
             indices = json.loads(match.group())
             selected = [news_list[i] for i in indices if i < len(news_list)]
-            return selected[:4] # 최대 4개 보장
-    except Exception as e:
-        print(f"AI 선별 실패 ({e}), 앞쪽 4개 선택")
-        
+            return selected[:4]
+    except: pass
     return news_list[:4]
 
 def summarize_news_item(target_model, news_item):
-    # 본문이 없으면 가져오기
     content_text = news_item.description
     if not content_text or len(content_text) < 50:
          fetched = fetch_article_content(news_item.link)
@@ -279,23 +268,16 @@ def summarize_news_item(target_model, news_item):
 
     prompt = f"""
     [Task]
-    Summarize the news for a Twitter image card.
-    
+    Summarize the news for a Twitter post.
     [Input]
     Title: {news_item.title}
     Source: {news_item.source_name}
     Content: {content_text[:3000]}
-
     [Rules]
     1. Korean language ONLY.
-    2. Tone: Dry, objective, noun-ending (e.g., ~함, ~승인). No honorifics.
-    3. NO Exclamation marks (!).
-    4. Output Format:
-       Title (1 line)
-       Summary Point 1
-       Summary Point 2
-       Summary Point 3
-    5. Max 4 lines total.
+    2. Tone: Dry, objective, noun-ending (e.g. ~함).
+    3. Output: Title (1 line) + 3 Summary Points.
+    4. Max 4 lines total.
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
@@ -305,7 +287,7 @@ def summarize_news_item(target_model, news_item):
         response = requests.post(url, headers={'Content-Type': 'application/json'}, json=data)
         text = response.json()['candidates'][0]['content']['parts'][0]['text']
         lines = [l.strip() for l in text.split('\n') if l.strip()]
-        return lines # [제목, 줄1, 줄2, 줄3]
+        return lines 
     except: return None
 
 # ==========================================
@@ -342,18 +324,14 @@ def is_duplicate(new_text, history_lines):
 
 if __name__ == "__main__":
     current_model = get_working_model()
-    
     global_titles = get_file_lines(GLOBAL_TITLE_FILE)
     global_summaries = get_file_lines(GLOBAL_SUMMARY_FILE) 
     
-    # 1. 뉴스 수집 단계
     candidates = []
-    
     print("🌍 전체 뉴스 소스 스캔 시작...")
+    
     for category, rss_url, filename, source_name in RSS_SOURCES:
         news = None
-        
-        # 소스별 크롤링
         if "t.me/s/" in rss_url:
             news = fetch_telegram_latest(rss_url, source_name, filename)
         else:
@@ -366,57 +344,49 @@ if __name__ == "__main__":
             except: pass
 
         if not news: continue
-
-        # 중복 필터링
         processed_links = get_file_lines(filename)
         if news.link.strip() in processed_links: continue
-        
         check_content = news.title if news.title else news.description[:100]
         if is_duplicate(check_content, global_titles): continue
-        
         candidates.append(news)
 
     print(f"✅ 수집된 후보 뉴스: {len(candidates)}개")
-    
     if not candidates:
         print("📭 새로운 뉴스가 없습니다.")
         sys.exit(0)
 
-    # 2. 뉴스 선별 (Top 4)
     selected_news = select_top_news(candidates, current_model)
     print(f"🎯 최종 선별된 뉴스: {len(selected_news)}개")
 
-    # 3. 요약 및 이미지 생성
     media_ids = []
-    tweet_text_body = "📢 마켓 레이더 주요 뉴스 Top 4\n\n"
+    tweet_text_body = "📢 마켓 레이더 주요 뉴스 브리핑\n\n"
+    emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
     
     processed_count = 0
     for i, news in enumerate(selected_news):
         print(f"Processing {i+1}/{len(selected_news)}: {news.title[:20]}...")
         
-        # AI 요약 생성
         summary_lines = summarize_news_item(current_model, news)
         if not summary_lines: continue
         
-        # 내용 중복 2차 체크 (AI 요약본 기준)
         joined_summary = " ".join(summary_lines)
         if is_duplicate(joined_summary, global_summaries):
             print("  🚫 요약 내용 중복으로 스킵")
-            # 스킵하더라도 링크는 저장해서 다시 안 보게 함
             save_file_line(news.filename, news.link)
             continue
             
-        # 이미지 생성 (카드)
         img_path = create_info_image(summary_lines, news.source_name, i+1)
         if img_path:
             try:
                 media = api.media_upload(img_path)
                 media_ids.append(media.media_id)
                 
-                # 트윗 본문 텍스트 구성
-                tweet_text_body += f"{i+1}️⃣ {summary_lines[0]}\n"
+                # ★ [수정] 본문에 요약 내용 상세 포함 (타이틀 + 세부내용)
+                tweet_text_body += f"{emojis[i]} {summary_lines[0]}\n" # 제목
+                for line in summary_lines[1:]:
+                    tweet_text_body += f"▫️ {line}\n" # 세부 내용 (불렛포인트)
+                tweet_text_body += "\n" # 뉴스 간 간격 추가
                 
-                # 기록 저장
                 save_file_line(news.filename, news.link)
                 save_file_line(GLOBAL_TITLE_FILE, news.title if news.title else news.description[:50])
                 with open(GLOBAL_SUMMARY_FILE, 'a', encoding='utf-8') as f: f.write(joined_summary + "\n")
@@ -426,9 +396,11 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"  ❌ 업로드 실패: {e}")
 
-    # 4. 최종 트윗 게시 (이미지가 하나라도 있을 때)
     if media_ids:
-        tweet_text_body += "\n#미국주식 #속보 #경제 #마켓레이더 $SPY $QQQ"
+        tweet_text_body += "#미국주식 #속보 #경제 #마켓레이더 $SPY $QQQ"
+        # 텍스트 길이 제한 안전장치 (혹시 너무 길면 자르기)
+        if len(tweet_text_body) > 1000: tweet_text_body = tweet_text_body[:995] + "..."
+        
         try:
             client.create_tweet(text=tweet_text_body, media_ids=media_ids)
             print("🚀 [성공] 뉴스 브리핑 트윗 전송 완료!")
