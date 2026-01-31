@@ -359,7 +359,14 @@ if __name__ == "__main__":
     print(f"🎯 최종 선별된 뉴스: {len(selected_news)}개")
 
     media_ids = []
-    tweet_text_body = "📢 마켓 레이더 주요 뉴스 브리핑\n\n"
+    
+    # ★ [수정] 한국 시간(KST) 및 요일 적용
+    KST = timezone(timedelta(hours=9))
+    now = datetime.now(KST)
+    weekday_kor = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()]
+    time_str = now.strftime(f"%m월 %d일 ({weekday_kor}) %H:%M")
+    
+    tweet_text_body = f"📢 {time_str} 기준 | 마켓 레이더 브리핑\n\n"
     emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
     
     processed_count = 0
@@ -381,11 +388,11 @@ if __name__ == "__main__":
                 media = api.media_upload(img_path)
                 media_ids.append(media.media_id)
                 
-                # ★ [수정] 본문에 요약 내용 상세 포함 (타이틀 + 세부내용)
+                # 본문 상세 추가
                 tweet_text_body += f"{emojis[i]} {summary_lines[0]}\n" # 제목
                 for line in summary_lines[1:]:
-                    tweet_text_body += f"▫️ {line}\n" # 세부 내용 (불렛포인트)
-                tweet_text_body += "\n" # 뉴스 간 간격 추가
+                    tweet_text_body += f"▫️ {line}\n" # 세부 내용
+                tweet_text_body += "\n" 
                 
                 save_file_line(news.filename, news.link)
                 save_file_line(GLOBAL_TITLE_FILE, news.title if news.title else news.description[:50])
@@ -398,7 +405,6 @@ if __name__ == "__main__":
 
     if media_ids:
         tweet_text_body += "#미국주식 #속보 #경제 #마켓레이더 $SPY $QQQ"
-        # 텍스트 길이 제한 안전장치 (혹시 너무 길면 자르기)
         if len(tweet_text_body) > 1000: tweet_text_body = tweet_text_body[:995] + "..."
         
         try:
