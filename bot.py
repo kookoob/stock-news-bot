@@ -47,9 +47,20 @@ except Exception as e:
     print(f"⚠️ 트위터 클라이언트 연결 실패: {e}")
 
 # ==========================================
-# 3. 뉴스 소스 리스트
+# 3. 뉴스 소스 리스트 (★ Investing.com 추가됨)
 # ==========================================
 RSS_SOURCES = [
+    # --- [NEW] Investing.com KR ---
+    ("Investing.com(News)", "https://kr.investing.com/rss/news.rss", "last_link_inv_news.txt", "Investing.com"),
+    ("Investing.com(Market)", "https://kr.investing.com/rss/market_overview.rss", "last_link_inv_market.txt", "Investing.com"),
+    ("Investing.com(Forex)", "https://kr.investing.com/rss/forex.rss", "last_link_inv_forex.txt", "Investing.com"),
+    ("Investing.com(Crypto)", "https://kr.investing.com/rss/290.rss", "last_link_inv_crypto.txt", "Investing.com"),
+    ("Investing.com(Economy)", "https://kr.investing.com/rss/286.rss", "last_link_inv_economy.txt", "Investing.com"),
+    ("Investing.com(Stock)", "https://kr.investing.com/rss/stock.rss", "last_link_inv_stock.txt", "Investing.com"),
+    ("Investing.com(Commodities)", "https://kr.investing.com/rss/commodities.rss", "last_link_inv_comm.txt", "Investing.com"),
+    ("Investing.com(Bonds)", "https://kr.investing.com/rss/bonds.rss", "last_link_inv_bonds.txt", "Investing.com"),
+
+    # --- 기존 소스 ---
     ("트럼프(TruthSocial)", "https://t.me/s/real_DonaldJTrump", "last_id_trump.txt", "Telegram"),
     ("하나차이나(China)", "https://t.me/s/HANAchina", "last_link_hana.txt", "Telegram"),
     ("마이클버리(Burry)", "https://nitter.privacydev.net/michaeljburry/rss", "last_link_burry.txt", "Michael Burry"),
@@ -360,7 +371,7 @@ if __name__ == "__main__":
 
     media_ids = []
     
-    # ★ [수정] 한국 시간(KST) 및 요일 적용
+    # 한국 시간(KST) 및 요일 적용
     KST = timezone(timedelta(hours=9))
     now = datetime.now(KST)
     weekday_kor = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()]
