@@ -177,14 +177,14 @@ def create_info_image(text_lines, source_name, index):
             
         margin_x = 60; current_y = 40
         
-        # ★ [수정] 좌측 상단 헤더 변경 (MARKET RADAR -> Koob)
+        # 좌측 상단 헤더: Koob
         header_text = f"Koob | News {index}"; 
         if source_name and source_name != "Telegram": header_text += f" | {source_name}"
             
         draw.ellipse([(margin_x, current_y+8), (margin_x+12, current_y+20)], fill=accent_cyan)
         draw.text((margin_x + 25, current_y), header_text, font=font_header, fill=accent_cyan)
         
-        # ★ [수정] 우측 상단 핸들 변경 (@marketradar0 -> @kimyg002)
+        # 우측 상단 핸들: @kimyg002
         KST = timezone(timedelta(hours=9))
         now = datetime.now(KST)
         date_str = f"{now.year}.{now.month:02d}.{now.day:02d} | @kimyg002"
@@ -403,8 +403,8 @@ if __name__ == "__main__":
     weekday_kor = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()]
     time_str = now.strftime(f"%m월 %d일 ({weekday_kor}) %H:%M")
     
-    # ★ [수정] 트윗 본문 헤더 (Koob 브랜딩)
-    tweet_text_body = f"📣 {time_str} 기준 | Koob 마켓 심층 브리핑 (Premium+)\n\n"
+    # ★ [수정] 트윗 본문 헤더 (심플한 뉴스레터 스타일)
+    tweet_text_body = f"📅 {time_str} 기준 | 주요 소식 정리\n\n"
     emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
     
     processed_count = 0
@@ -447,7 +447,7 @@ if __name__ == "__main__":
                 print(f"  ❌ 업로드 실패: {e}")
 
     if media_ids:
-        # ★ [수정] 해시태그에 본인 아이디 추가
+        # ★ [수정] 해시태그 수정
         tweet_text_body += "\n#미국주식 #속보 #경제 #Koob #@kimyg002 $SPY $QQQ"
         
         if len(tweet_text_body) > 24000: tweet_text_body = tweet_text_body[:23995] + "..."
