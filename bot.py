@@ -176,15 +176,18 @@ def create_info_image(text_lines, source_name, index):
             except: return None
             
         margin_x = 60; current_y = 40
-        header_text = f"MARKET RADAR | News {index}"; 
+        
+        # ★ [수정] 좌측 상단 헤더 변경 (MARKET RADAR -> Koob)
+        header_text = f"Koob | News {index}"; 
         if source_name and source_name != "Telegram": header_text += f" | {source_name}"
             
         draw.ellipse([(margin_x, current_y+8), (margin_x+12, current_y+20)], fill=accent_cyan)
         draw.text((margin_x + 25, current_y), header_text, font=font_header, fill=accent_cyan)
         
+        # ★ [수정] 우측 상단 핸들 변경 (@marketradar0 -> @kimyg002)
         KST = timezone(timedelta(hours=9))
         now = datetime.now(KST)
-        date_str = f"{now.year}.{now.month:02d}.{now.day:02d} | @marketradar0"
+        date_str = f"{now.year}.{now.month:02d}.{now.day:02d} | @kimyg002"
         date_bbox = draw.textbbox((0, 0), date_str, font=font_date)
         date_width = date_bbox[2] - date_bbox[0]
         draw.text((width - margin_x - date_width, current_y), date_str, font=font_date, fill=text_gray)
@@ -268,17 +271,15 @@ def select_top_news(news_list, model_name):
     except: pass
     return news_list[:4]
 
-# ★ [수정] AI 요약 함수 (이미지용/본문용 분리 생성)
 def summarize_news_item(target_model, news_item):
     content_text = news_item.description
     if not content_text or len(content_text) < 50:
          fetched = fetch_article_content(news_item.link)
          if fetched: content_text = fetched
 
-    # ★ [핵심] 프롬프트 수정: 이미지용(짧게)과 텍스트용(길고 자세하게) 분리 요청
     prompt = f"""
     [Task]
-    Analyze the provided news and generate two versions of summaries.
+    Analyze the provided news and generate two versions of output.
     
     [Input]
     Title: {news_item.title}
@@ -288,21 +289,21 @@ def summarize_news_item(target_model, news_item):
     [Rules]
     1. Language: **Korean ONLY**.
     2. Terminology: Never use '전기동', always use '구리'.
-    3. Tone: Professional, objective, noun-ending (e.g., ~함, ~전망).
+    3. Tone: Professional, analytical, expert financial editor.
     
     [Output Format]
     ---IMAGE---
     (Title for Image - 1 line)
-    (Short Summary Point 1)
-    (Short Summary Point 2)
-    (Short Summary Point 3)
+    (Short Summary 1 - 1 line)
+    (Short Summary 2 - 1 line)
+    (Short Summary 3 - 1 line)
+    
     ---TEXT---
-    (Title for Text - 1 line)
-    (Detailed Analysis Point 1 - include context and background)
-    (Detailed Analysis Point 2 - explain why this matters)
-    (Detailed Analysis Point 3)
-    (Detailed Analysis Point 4)
-    (Detailed Analysis Point 5)
+    (Detailed Title - 1 line)
+    (Detailed Point 1: Background & Context - 1~2 sentences)
+    (Detailed Point 2: Key facts & numbers - 1~2 sentences)
+    (Detailed Point 3: Market Impact & Outlook - 1~2 sentences)
+    (Detailed Point 4: Related Stocks/Sectors - 1 sentence)
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
@@ -312,7 +313,6 @@ def summarize_news_item(target_model, news_item):
         response = requests.post(url, headers={'Content-Type': 'application/json'}, json=data)
         text = response.json()['candidates'][0]['content']['parts'][0]['text']
         
-        # 결과 파싱
         if "---IMAGE---" in text and "---TEXT---" in text:
             parts = text.split("---TEXT---")
             image_part = parts[0].replace("---IMAGE---", "").strip()
@@ -323,7 +323,6 @@ def summarize_news_item(target_model, news_item):
             
             return {"image": image_lines, "text": text_lines}
         else:
-            # 포맷 안 맞으면 기본 처리
             lines = [l.strip() for l in text.split('\n') if l.strip()]
             return {"image": lines[:4], "text": lines}
             
@@ -399,48 +398,43 @@ if __name__ == "__main__":
 
     media_ids = []
     
-    # 한국 시간(KST) 및 요일 적용
     KST = timezone(timedelta(hours=9))
     now = datetime.now(KST)
     weekday_kor = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()]
     time_str = now.strftime(f"%m월 %d일 ({weekday_kor}) %H:%M")
     
-    tweet_text_body = f"📢 {time_str} 기준 | 마켓 레이더 브리핑\n\n"
+    # ★ [수정] 트윗 본문 헤더 (Koob 브랜딩)
+    tweet_text_body = f"📣 {time_str} 기준 | Koob 마켓 심층 브리핑 (Premium+)\n\n"
     emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
     
     processed_count = 0
     for i, news in enumerate(selected_news):
         print(f"Processing {i+1}/{len(selected_news)}: {news.title[:20]}...")
         
-        # ★ [수정] 결과가 딕셔너리 형태 {"image": [], "text": []} 로 옴
         result = summarize_news_item(current_model, news)
         if not result or not result.get("image"): continue
         
         image_lines = result["image"]
         text_lines = result["text"]
 
-        # ★ [핵심] "전기동" -> "구리" 강제 치환 (이미지, 텍스트 모두)
         image_lines = [l.replace("전기동", "구리") for l in image_lines]
         text_lines = [l.replace("전기동", "구리") for l in text_lines]
 
-        # 중복 체크 (텍스트 본문 기준)
         joined_summary = " ".join(text_lines)
         if is_duplicate(joined_summary, global_summaries):
             print("  🚫 요약 내용 중복으로 스킵")
             save_file_line(news.filename, news.link)
             continue
             
-        # 이미지 생성 (짧은 요약 사용)
         img_path = create_info_image(image_lines, news.source_name, i+1)
         if img_path:
             try:
                 media = api.media_upload(img_path)
                 media_ids.append(media.media_id)
                 
-                # 트윗 본문 생성 (긴 상세 요약 사용)
-                tweet_text_body += f"{emojis[i]} {text_lines[0]}\n" # 제목
+                tweet_text_body += f"{emojis[i]} **{text_lines[0]}**\n" 
                 for line in text_lines[1:]:
-                    tweet_text_body += f"▫️ {line}\n" # 상세 내용
+                    tweet_text_body += f"  • {line}\n" 
                 tweet_text_body += "\n" 
                 
                 save_file_line(news.filename, news.link)
@@ -453,12 +447,14 @@ if __name__ == "__main__":
                 print(f"  ❌ 업로드 실패: {e}")
 
     if media_ids:
-        tweet_text_body += "#미국주식 #속보 #경제 #마켓레이더 $SPY $QQQ"
-        if len(tweet_text_body) > 1000: tweet_text_body = tweet_text_body[:995] + "..."
+        # ★ [수정] 해시태그에 본인 아이디 추가
+        tweet_text_body += "\n#미국주식 #속보 #경제 #Koob #@kimyg002 $SPY $QQQ"
+        
+        if len(tweet_text_body) > 24000: tweet_text_body = tweet_text_body[:23995] + "..."
         
         try:
             client.create_tweet(text=tweet_text_body, media_ids=media_ids)
-            print("🚀 [성공] 뉴스 브리핑 트윗 전송 완료!")
+            print("🚀 [성공] Premium+ 장문 리포트 전송 완료!")
         except Exception as e:
             print(f"❌ [실패] 트윗 전송 에러: {e}")
     else:
