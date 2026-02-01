@@ -277,10 +277,10 @@ def summarize_news_item(target_model, news_item):
          fetched = fetch_article_content(news_item.link)
          if fetched: content_text = fetched
 
-    # ★ [핵심] 1) 라벨 금지 2) 마크다운 볼드(**) 금지 3) 축약체 사용
+    # [수정됨] 프롬프트에 티커 추출 로직 추가
     prompt = f"""
     [Task]
-    Analyze the provided news and generate two versions of output.
+    Analyze the provided news and generate outputs.
     
     [Input]
     Title: {news_item.title}
@@ -288,12 +288,16 @@ def summarize_news_item(target_model, news_item):
     Content: {content_text[:4000]}
     
     [Rules]
-    1. Language: **Korean ONLY**.
+    1. Language: **Korean ONLY** for summary.
     2. Terminology: Never use '전기동', always use '구리'.
     3. Tone: **Abbreviated style (e.g., ~함, ~음, ~전망)**. Short and concise.
     4. **Forbidden:**
        - Do NOT use labels like 'Detailed Point', 'Background:', etc.
        - Do NOT use markdown bold syntax (**text**). Just plain text.
+    5. **Ticker Extraction:**
+       - Identify specific companies or assets mentioned.
+       - Convert to Stock Ticker format (e.g., Apple -> $AAPL, Bitcoin -> $BTC).
+       - For Korean stocks, use 6-digit code (e.g., $005930) or standard ticker.
     
     [Output Format]
     ---IMAGE---
@@ -308,6 +312,9 @@ def summarize_news_item(target_model, news_item):
     (Core Fact 2 - 1 line, noun-ending)
     (Market Implication - 1 line, noun-ending)
     (Related Sectors - 1 line, noun-ending)
+
+    ---TICKERS---
+    (Space-separated tickers starting with $, e.g. $AAPL $TSLA $005930. If none, leave empty)
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
@@ -317,18 +324,32 @@ def summarize_news_item(target_model, news_item):
         response = requests.post(url, headers={'Content-Type': 'application/json'}, json=data)
         text = response.json()['candidates'][0]['content']['parts'][0]['text']
         
-        if "---IMAGE---" in text and "---TEXT---" in text:
-            parts = text.split("---TEXT---")
-            image_part = parts[0].replace("---IMAGE---", "").strip()
-            text_part = parts[1].strip()
+        # [수정됨] 텍스트 파싱 로직 업데이트
+        result_data = {"image": [], "text": [], "tickers": []}
+        
+        if "---IMAGE---" in text:
+            parts_img = text.split("---IMAGE---")[1].split("---TEXT---")
+            image_str = parts_img[0].strip()
+            remaining = parts_img[1].strip() if len(parts_img) > 1 else ""
             
-            image_lines = [l.strip() for l in image_part.split('\n') if l.strip()]
-            text_lines = [l.strip() for l in text_part.split('\n') if l.strip()]
+            if "---TICKERS---" in remaining:
+                parts_ticker = remaining.split("---TICKERS---")
+                text_str = parts_ticker[0].strip()
+                ticker_str = parts_ticker[1].strip()
+                
+                # 티커 정제
+                found_tickers = [t.strip() for t in ticker_str.split() if t.startswith('$')]
+                result_data["tickers"] = found_tickers
+            else:
+                text_str = remaining
             
-            return {"image": image_lines, "text": text_lines}
+            result_data["image"] = [l.strip() for l in image_str.split('\n') if l.strip()]
+            result_data["text"] = [l.strip() for l in text_str.split('\n') if l.strip()]
+            return result_data
         else:
+            # 포맷이 깨진 경우 기본 처리
             lines = [l.strip() for l in text.split('\n') if l.strip()]
-            return {"image": lines[:4], "text": lines}
+            return {"image": lines[:4], "text": lines, "tickers": []}
             
     except: return None
 
@@ -410,6 +431,9 @@ if __name__ == "__main__":
     tweet_text_body = f"📅 {time_str} 기준 | 주요 소식 정리\n\n"
     emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
     
+    # [추가됨] 티커 수집용 집합
+    collected_tickers = set()
+
     processed_count = 0
     for i, news in enumerate(selected_news):
         print(f"Processing {i+1}/{len(selected_news)}: {news.title[:20]}...")
@@ -419,6 +443,11 @@ if __name__ == "__main__":
         
         image_lines = result["image"]
         text_lines = result["text"]
+        
+        # 티커 수집
+        if result.get("tickers"):
+            for t in result["tickers"]:
+                collected_tickers.add(t)
 
         image_lines = [l.replace("전기동", "구리") for l in image_lines]
         text_lines = [l.replace("전기동", "구리") for l in text_lines]
@@ -454,8 +483,11 @@ if __name__ == "__main__":
                 print(f"  ❌ 업로드 실패: {e}")
 
     if media_ids:
-        # ★ [수정] 해시태그에서 아이디/Koob 삭제
-        tweet_text_body += "\n#미국주식 #속보 #경제 $SPY $QQQ"
+        # [수정됨] 고정 태그 + 자동 추출된 티커 추가
+        base_tags = "#미국주식 #속보 #경제"
+        ticker_tags = " ".join(list(collected_tickers)) # 리스트로 변환 후 문자열 결합
+        
+        tweet_text_body += f"\n{base_tags} {ticker_tags}"
         
         if len(tweet_text_body) > 24000: tweet_text_body = tweet_text_body[:23995] + "..."
         
