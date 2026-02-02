@@ -59,6 +59,8 @@ RSS_SOURCES = [
     ("Investing.com(Commodities)", "https://kr.investing.com/rss/commodities.rss", "last_link_inv_comm.txt", "Investing.com"),
     ("Investing.com(Bonds)", "https://kr.investing.com/rss/bonds.rss", "last_link_inv_bonds.txt", "Investing.com"),
     ("트럼프(TruthSocial)", "https://t.me/s/real_DonaldJTrump", "last_id_trump.txt", "Telegram"),
+    # ▼ [추가됨] 요청하신 트럼프 관련 채널 (Goddess)
+    ("트럼프(Goddess)", "https://t.me/s/goddessTTF", "last_id_goddess.txt", "Telegram"),
     ("하나차이나(China)", "https://t.me/s/HANAchina", "last_link_hana.txt", "Telegram"),
     ("마이클버리(Burry)", "https://nitter.privacydev.net/michaeljburry/rss", "last_link_burry.txt", "Michael Burry"),
     ("미국주식(블룸버그)", "https://news.google.com/rss/search?q=site:bloomberg.com+when:1d&hl=en-US&gl=US&ceid=US:en", "last_link_bloomberg.txt", "Bloomberg"),
