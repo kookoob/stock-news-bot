@@ -84,7 +84,6 @@ MAX_HISTORY = 2000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 GLOBAL_SUMMARY_FILE = "processed_ai_summaries.txt"
 
-# [추가] 출처 이름 한글 매핑 (링크 방지용)
 SOURCE_MAP_KR = {
     "Investing.com": "인베스팅닷컴",
     "Bloomberg": "블룸버그",
@@ -193,14 +192,12 @@ def create_info_image(text_lines, source_name, index):
             
         margin_x = 60; current_y = 40
         
-        # 좌측 상단 헤더: Koob
         header_text = f"Koob | News {index}"; 
         if source_name and source_name != "Telegram": header_text += f" | {source_name}"
             
         draw.ellipse([(margin_x, current_y+8), (margin_x+12, current_y+20)], fill=accent_cyan)
         draw.text((margin_x + 25, current_y), header_text, font=font_header, fill=accent_cyan)
         
-        # 우측 상단 핸들: @kimyg002
         KST = timezone(timedelta(hours=9))
         now = datetime.now(KST)
         date_str = f"{now.year}.{now.month:02d}.{now.day:02d} | @kimyg002"
@@ -293,7 +290,7 @@ def summarize_news_item(target_model, news_item):
          fetched = fetch_article_content(news_item.link)
          if fetched: content_text = fetched
 
-    # [수정됨] 프롬프트에 티커 추출 로직 추가
+    # ★ [핵심 수정] 프롬프트: 자세한 본문 내용 생성 요청
     prompt = f"""
     [Task]
     Analyze the provided news and generate outputs.
@@ -306,14 +303,17 @@ def summarize_news_item(target_model, news_item):
     [Rules]
     1. Language: **Korean ONLY** for summary.
     2. Terminology: Never use '전기동', always use '구리'.
-    3. Tone: **Abbreviated style (e.g., ~함, ~음, ~전망)**. Short and concise.
-    4. **Forbidden:**
-       - Do NOT use labels like 'Detailed Point', 'Background:', etc.
-       - Do NOT use markdown bold syntax (**text**). Just plain text.
-    5. **Ticker Extraction:**
+    3. Tone: **Abbreviated style (e.g., ~함, ~음, ~전망)**. 
+    4. **Detail Level for TEXT:**
+       - **Do NOT summarize in 1 line.** - Explain the 'Background/Context', 'Key Facts/Numbers', and 'Market Impact' in depth.
+       - Each bullet point in the TEXT section must contain **2-3 detailed sentences**.
+       - Make it look like a professional analyst's briefing.
+    5. **Forbidden:**
+       - Do NOT use labels like 'Detailed Point', 'Background:', etc. Just output the content.
+       - Do NOT use markdown bold syntax (**text**) in the TEXT section.
+    6. **Ticker Extraction:**
        - Identify specific companies or assets mentioned.
        - Convert to Stock Ticker format (e.g., Apple -> $AAPL, Bitcoin -> $BTC).
-       - For Korean stocks, use 6-digit code (e.g., $005930) or standard ticker.
     
     [Output Format]
     ---IMAGE---
@@ -324,10 +324,10 @@ def summarize_news_item(target_model, news_item):
     
     ---TEXT---
     (Title for Text - 1 line)
-    (Core Fact 1 - 1 line, noun-ending)
-    (Core Fact 2 - 1 line, noun-ending)
-    (Market Implication - 1 line, noun-ending)
-    (Related Sectors - 1 line, noun-ending)
+    (Deep Analysis 1: Context/Background - 2~3 sentences ending in noun form)
+    (Deep Analysis 2: Key Facts/Numbers - 2~3 sentences ending in noun form)
+    (Deep Analysis 3: Market Impact/Outlook - 2~3 sentences ending in noun form)
+    (Related Sectors/Assets - 1 line)
 
     ---TICKERS---
     (Space-separated tickers starting with $, e.g. $AAPL $TSLA $005930. If none, leave empty)
@@ -340,7 +340,6 @@ def summarize_news_item(target_model, news_item):
         response = requests.post(url, headers={'Content-Type': 'application/json'}, json=data)
         text = response.json()['candidates'][0]['content']['parts'][0]['text']
         
-        # [수정됨] 텍스트 파싱 로직 업데이트
         result_data = {"image": [], "text": [], "tickers": []}
         
         if "---IMAGE---" in text:
@@ -353,7 +352,6 @@ def summarize_news_item(target_model, news_item):
                 text_str = parts_ticker[0].strip()
                 ticker_str = parts_ticker[1].strip()
                 
-                # 티커 정제
                 found_tickers = [t.strip() for t in ticker_str.split() if t.startswith('$')]
                 result_data["tickers"] = found_tickers
             else:
@@ -363,7 +361,6 @@ def summarize_news_item(target_model, news_item):
             result_data["text"] = [l.strip() for l in text_str.split('\n') if l.strip()]
             return result_data
         else:
-            # 포맷이 깨진 경우 기본 처리
             lines = [l.strip() for l in text.split('\n') if l.strip()]
             return {"image": lines[:4], "text": lines, "tickers": []}
             
@@ -448,15 +445,13 @@ if __name__ == "__main__":
     emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
     
     collected_tickers = set()
-    collected_sources = set()  # [추가] 출처 수집용 집합
+    collected_sources = set()
 
     processed_count = 0
     for i, news in enumerate(selected_news):
         print(f"Processing {i+1}/{len(selected_news)}: {news.title[:20]}...")
         
-        # 출처 수집 (Telegram 제외)
         if news.source_name != "Telegram":
-            # 한글 매핑된 이름이 있으면 그걸 쓰고, 없으면 원래 이름 사용
             safe_source_name = SOURCE_MAP_KR.get(news.source_name, news.source_name)
             collected_sources.add(safe_source_name)
 
@@ -472,6 +467,8 @@ if __name__ == "__main__":
 
         image_lines = [l.replace("전기동", "구리") for l in image_lines]
         text_lines = [l.replace("전기동", "구리") for l in text_lines]
+        
+        # 볼드체 제거 등 청소
         text_lines = [l.replace("**", "").replace("##", "") for l in text_lines]
 
         joined_summary = " ".join(text_lines)
@@ -488,7 +485,7 @@ if __name__ == "__main__":
                 
                 tweet_text_body += f"{emojis[i]} {text_lines[0]}\n" # 제목
                 for line in text_lines[1:]:
-                    tweet_text_body += f"  • {line}\n" # 내용
+                    tweet_text_body += f"  • {line}\n" # 내용 (이제 길게 나옴)
                 tweet_text_body += "\n" 
                 
                 save_file_line(news.filename, news.link)
@@ -501,7 +498,6 @@ if __name__ == "__main__":
                 print(f"  ❌ 업로드 실패: {e}")
 
     if media_ids:
-        # [변경] 출처 표시 (본문 하단에 텍스트로)
         if collected_sources:
             source_str = ", ".join(sorted(list(collected_sources)))
             tweet_text_body += f"출처 : {source_str}\n"
@@ -514,7 +510,6 @@ if __name__ == "__main__":
         if len(tweet_text_body) > 24000: tweet_text_body = tweet_text_body[:23995] + "..."
         
         try:
-            # [변경] 메인 트윗만 전송 (댓글/링크 전송 코드 완전 삭제)
             response = client.create_tweet(text=tweet_text_body, media_ids=media_ids)
             print("🚀 [성공] 뉴스 리포트 전송 완료!")
             
