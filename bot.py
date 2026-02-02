@@ -59,7 +59,6 @@ RSS_SOURCES = [
     ("Investing.com(Commodities)", "https://kr.investing.com/rss/commodities.rss", "last_link_inv_comm.txt", "Investing.com"),
     ("Investing.com(Bonds)", "https://kr.investing.com/rss/bonds.rss", "last_link_inv_bonds.txt", "Investing.com"),
     ("트럼프(TruthSocial)", "https://t.me/s/real_DonaldJTrump", "last_id_trump.txt", "Telegram"),
-    # ▼ [추가됨] 요청하신 트럼프 관련 채널 (Goddess)
     ("트럼프(Goddess)", "https://t.me/s/goddessTTF", "last_id_goddess.txt", "Telegram"),
     ("하나차이나(China)", "https://t.me/s/HANAchina", "last_link_hana.txt", "Telegram"),
     ("마이클버리(Burry)", "https://nitter.privacydev.net/michaeljburry/rss", "last_link_burry.txt", "Michael Burry"),
@@ -84,6 +83,21 @@ RSS_SOURCES = [
 MAX_HISTORY = 2000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 GLOBAL_SUMMARY_FILE = "processed_ai_summaries.txt"
+
+# [추가] 출처 이름 한글 매핑 (링크 방지용)
+SOURCE_MAP_KR = {
+    "Investing.com": "인베스팅닷컴",
+    "Bloomberg": "블룸버그",
+    "WSJ": "WSJ",
+    "CNBC": "CNBC",
+    "Yahoo Finance": "야후파이낸스",
+    "TechCrunch": "테크크런치",
+    "Google News": "구글뉴스",
+    "Michael Burry": "마이클버리",
+    "연합뉴스": "연합뉴스",
+    "한국경제": "한국경제",
+    "매일경제": "매일경제"
+}
 
 # ==========================================
 # 4. 크롤링 및 데이터 수집 함수
@@ -433,28 +447,31 @@ if __name__ == "__main__":
     tweet_text_body = f"📅 {time_str} 기준 | 주요 소식 정리\n\n"
     emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
     
-    # [추가됨] 티커 수집용 집합
     collected_tickers = set()
+    collected_sources = set()  # [추가] 출처 수집용 집합
 
     processed_count = 0
     for i, news in enumerate(selected_news):
         print(f"Processing {i+1}/{len(selected_news)}: {news.title[:20]}...")
         
+        # 출처 수집 (Telegram 제외)
+        if news.source_name != "Telegram":
+            # 한글 매핑된 이름이 있으면 그걸 쓰고, 없으면 원래 이름 사용
+            safe_source_name = SOURCE_MAP_KR.get(news.source_name, news.source_name)
+            collected_sources.add(safe_source_name)
+
         result = summarize_news_item(current_model, news)
         if not result or not result.get("image"): continue
         
         image_lines = result["image"]
         text_lines = result["text"]
         
-        # 티커 수집
         if result.get("tickers"):
             for t in result["tickers"]:
                 collected_tickers.add(t)
 
         image_lines = [l.replace("전기동", "구리") for l in image_lines]
         text_lines = [l.replace("전기동", "구리") for l in text_lines]
-
-        # ★ [안전장치] AI가 혹시나 **를 포함했으면 여기서 강제로 삭제 (청소)
         text_lines = [l.replace("**", "").replace("##", "") for l in text_lines]
 
         joined_summary = " ".join(text_lines)
@@ -469,7 +486,6 @@ if __name__ == "__main__":
                 media = api.media_upload(img_path)
                 media_ids.append(media.media_id)
                 
-                # ★ [수정] 본문 생성 시 **(볼드) 문법 제거하고 순수 텍스트만 사용
                 tweet_text_body += f"{emojis[i]} {text_lines[0]}\n" # 제목
                 for line in text_lines[1:]:
                     tweet_text_body += f"  • {line}\n" # 내용
@@ -485,26 +501,22 @@ if __name__ == "__main__":
                 print(f"  ❌ 업로드 실패: {e}")
 
     if media_ids:
-        # [수정됨] 고정 태그 + 자동 추출된 티커 추가
+        # [변경] 출처 표시 (본문 하단에 텍스트로)
+        if collected_sources:
+            source_str = ", ".join(sorted(list(collected_sources)))
+            tweet_text_body += f"출처 : {source_str}\n"
+
         base_tags = "#미국주식 #속보 #경제"
-        ticker_tags = " ".join(list(collected_tickers)) # 리스트로 변환 후 문자열 결합
+        ticker_tags = " ".join(list(collected_tickers)) 
         
         tweet_text_body += f"\n{base_tags} {ticker_tags}"
         
         if len(tweet_text_body) > 24000: tweet_text_body = tweet_text_body[:23995] + "..."
         
         try:
+            # [변경] 메인 트윗만 전송 (댓글/링크 전송 코드 완전 삭제)
             response = client.create_tweet(text=tweet_text_body, media_ids=media_ids)
             print("🚀 [성공] 뉴스 리포트 전송 완료!")
-            
-            main_tweet_id = response.data['id']
-            reply_text = "🔗 기사 원문 링크\n\n"
-            for i, news in enumerate(selected_news):
-                if i < processed_count:
-                    reply_text += f"{emojis[i]} {news.link}\n"
-            
-            client.create_tweet(text=reply_text, in_reply_to_tweet_id=main_tweet_id)
-            print("🔗 [성공] 원문 링크 댓글 달기 완료!")
             
         except Exception as e:
             print(f"❌ [실패] 트윗 전송 에러: {e}")
