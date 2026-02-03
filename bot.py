@@ -290,30 +290,28 @@ def summarize_news_item(target_model, news_item):
          fetched = fetch_article_content(news_item.link)
          if fetched: content_text = fetched
 
-    # ★ [핵심 수정] 프롬프트: 자세한 본문 내용 생성 요청
+    # ★ [수정] 1. 영어 번역 필수 2. 가독성(줄바꿈) 3. 내용 깊이 유지
     prompt = f"""
     [Task]
-    Analyze the provided news and generate outputs.
+    Analyze the news and generate output.
     
+    [CRITICAL RULE]
+    **IF THE INPUT IS IN ENGLISH, YOU MUST TRANSLATE IT TO KOREAN.**
+    The output must be 100% Korean. Do not output English sentences in the summary.
+
     [Input]
     Title: {news_item.title}
     Source: {news_item.source_name}
     Content: {content_text[:4000]}
     
     [Rules]
-    1. Language: **Korean ONLY** for summary.
-    2. Terminology: Never use '전기동', always use '구리'.
-    3. Tone: **Abbreviated style (e.g., ~함, ~음, ~전망)**. 
-    4. **Detail Level for TEXT:**
-       - **Do NOT summarize in 1 line.** - Explain the 'Background/Context', 'Key Facts/Numbers', and 'Market Impact' in depth.
-       - Each bullet point in the TEXT section must contain **2-3 detailed sentences**.
-       - Make it look like a professional analyst's briefing.
-    5. **Forbidden:**
-       - Do NOT use labels like 'Detailed Point', 'Background:', etc. Just output the content.
-       - Do NOT use markdown bold syntax (**text**) in the TEXT section.
-    6. **Ticker Extraction:**
-       - Identify specific companies or assets mentioned.
-       - Convert to Stock Ticker format (e.g., Apple -> $AAPL, Bitcoin -> $BTC).
+    1. Language: **KOREAN ONLY**.
+    2. Terminology: Use '구리' instead of '전기동'.
+    3. Tone: Abbreviated style (e.g. ~함, ~음).
+    4. **Formatting for TEXT:**
+       - Do NOT make it a single block of text.
+       - Use clearly separated points.
+       - Keep sentences readable.
     
     [Output Format]
     ---IMAGE---
@@ -324,13 +322,13 @@ def summarize_news_item(target_model, news_item):
     
     ---TEXT---
     (Title for Text - 1 line)
-    (Deep Analysis 1: Context/Background - 2~3 sentences ending in noun form)
-    (Deep Analysis 2: Key Facts/Numbers - 2~3 sentences ending in noun form)
-    (Deep Analysis 3: Market Impact/Outlook - 2~3 sentences ending in noun form)
-    (Related Sectors/Assets - 1 line)
+    (Deep Analysis 1: Context - 2~3 sentences)
+    (Deep Analysis 2: Facts - 2~3 sentences)
+    (Deep Analysis 3: Impact - 2~3 sentences)
+    (Related Sectors - 1 line)
 
     ---TICKERS---
-    (Space-separated tickers starting with $, e.g. $AAPL $TSLA $005930. If none, leave empty)
+    (Space-separated tickers starting with $, e.g. $AAPL. If none, leave empty)
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
@@ -467,8 +465,6 @@ if __name__ == "__main__":
 
         image_lines = [l.replace("전기동", "구리") for l in image_lines]
         text_lines = [l.replace("전기동", "구리") for l in text_lines]
-        
-        # 볼드체 제거 등 청소
         text_lines = [l.replace("**", "").replace("##", "") for l in text_lines]
 
         joined_summary = " ".join(text_lines)
@@ -483,10 +479,16 @@ if __name__ == "__main__":
                 media = api.media_upload(img_path)
                 media_ids.append(media.media_id)
                 
-                tweet_text_body += f"{emojis[i]} {text_lines[0]}\n" # 제목
+                # ★ [수정] 줄바꿈(가독성) 로직 강화
+                tweet_text_body += f"{emojis[i]} **{text_lines[0]}**\n\n" # 제목 후 빈 줄
                 for line in text_lines[1:]:
-                    tweet_text_body += f"  • {line}\n" # 내용 (이제 길게 나옴)
-                tweet_text_body += "\n" 
+                    # 본문 항목마다 띄어쓰기 추가
+                    clean_line = line.strip()
+                    if clean_line:
+                        tweet_text_body += f"  • {clean_line}\n\n" 
+                
+                # 뉴스 항목 간 추가 여백
+                tweet_text_body += "────────────────\n\n"
                 
                 save_file_line(news.filename, news.link)
                 save_file_line(GLOBAL_TITLE_FILE, news.title if news.title else news.description[:50])
