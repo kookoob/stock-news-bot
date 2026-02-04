@@ -290,28 +290,30 @@ def summarize_news_item(target_model, news_item):
          fetched = fetch_article_content(news_item.link)
          if fetched: content_text = fetched
 
-    # ★ [수정] 1. 영어 번역 필수 2. 가독성(줄바꿈) 3. 내용 깊이 유지
+    # ★ [핵심 수정] 말투, 태도, 금지어, 번역 규칙 대폭 강화
     prompt = f"""
     [Task]
     Analyze the news and generate output.
     
-    [CRITICAL RULE]
+    [CRITICAL RULE 1: TRANSLATION]
     **IF THE INPUT IS IN ENGLISH, YOU MUST TRANSLATE IT TO KOREAN.**
-    The output must be 100% Korean. Do not output English sentences in the summary.
+    The output must be 100% Korean. 
+
+    [CRITICAL RULE 2: TONE & STYLE]
+    - Role: Insightful Financial Analyst talking to peers.
+    - Tone: Natural, expert, cynical but objective. Avoid robotic translation tone.
+    - Style: Use concise noun-endings (e.g. ~음, ~함, ~임) mixed naturally. 
+    - **Do NOT be stiff.** Write as if a human expert is summarizing quickly.
+    
+    [CRITICAL RULE 3: FORBIDDEN]
+    - **NEVER use labels** like 'Deep Analysis:', 'Context:', 'Fact:', 'Insight:'. 
+    - **NEVER use bolding** inside the text (e.g. **text**).
+    - Do NOT just list facts. Connect them into a coherent narrative.
 
     [Input]
     Title: {news_item.title}
     Source: {news_item.source_name}
     Content: {content_text[:4000]}
-    
-    [Rules]
-    1. Language: **KOREAN ONLY**.
-    2. Terminology: Use '구리' instead of '전기동'.
-    3. Tone: Abbreviated style (e.g. ~함, ~음).
-    4. **Formatting for TEXT:**
-       - Do NOT make it a single block of text.
-       - Use clearly separated points.
-       - Keep sentences readable.
     
     [Output Format]
     ---IMAGE---
@@ -322,10 +324,10 @@ def summarize_news_item(target_model, news_item):
     
     ---TEXT---
     (Title for Text - 1 line)
-    (Deep Analysis 1: Context - 2~3 sentences)
-    (Deep Analysis 2: Facts - 2~3 sentences)
-    (Deep Analysis 3: Impact - 2~3 sentences)
-    (Related Sectors - 1 line)
+    (Paragraph 1: Context & Background - Explain naturally what happened. 2-3 sentences.)
+    (Paragraph 2: Key Details & Numbers - Explain specific figures or quotes. 2-3 sentences.)
+    (Paragraph 3: Impact & Insight - Explain why this matters to investors. 2-3 sentences.)
+    (Related Sectors: List relevant sectors/assets naturally)
 
     ---TICKERS---
     (Space-separated tickers starting with $, e.g. $AAPL. If none, leave empty)
@@ -465,7 +467,12 @@ if __name__ == "__main__":
 
         image_lines = [l.replace("전기동", "구리") for l in image_lines]
         text_lines = [l.replace("전기동", "구리") for l in text_lines]
+        
+        # [안전장치] AI가 혹시나 **를 포함했으면 여기서 강제로 삭제 (청소)
         text_lines = [l.replace("**", "").replace("##", "") for l in text_lines]
+        
+        # [안전장치] AI가 혹시나 라벨을 포함했으면 삭제
+        text_lines = [re.sub(r'^(Deep Analysis \d:|Context:|Fact:|Impact:|Insight:)\s*', '', l) for l in text_lines]
 
         joined_summary = " ".join(text_lines)
         if is_duplicate(joined_summary, global_summaries):
@@ -479,15 +486,13 @@ if __name__ == "__main__":
                 media = api.media_upload(img_path)
                 media_ids.append(media.media_id)
                 
-                # ★ [수정] 줄바꿈(가독성) 로직 강화
-                tweet_text_body += f"{emojis[i]} **{text_lines[0]}**\n\n" # 제목 후 빈 줄
+                # ★ [수정] 볼드(**) 절대 안 들어가게 처리
+                tweet_text_body += f"{emojis[i]} {text_lines[0]}\n\n" 
                 for line in text_lines[1:]:
-                    # 본문 항목마다 띄어쓰기 추가
                     clean_line = line.strip()
                     if clean_line:
-                        tweet_text_body += f"  • {clean_line}\n\n" 
+                        tweet_text_body += f"  • {clean_line}\n\n"
                 
-                # 뉴스 항목 간 추가 여백
                 tweet_text_body += "────────────────\n\n"
                 
                 save_file_line(news.filename, news.link)
