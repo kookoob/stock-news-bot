@@ -290,7 +290,7 @@ def summarize_news_item(target_model, news_item):
          fetched = fetch_article_content(news_item.link)
          if fetched: content_text = fetched
 
-    # ★ [핵심 수정] 말투, 태도, 금지어, 번역 규칙 대폭 강화
+    # ★ [핵심 수정] Output Format에서 "Related Sectors" -> "관련 섹터" 로 변경
     prompt = f"""
     [Task]
     Analyze the news and generate output.
@@ -327,7 +327,7 @@ def summarize_news_item(target_model, news_item):
     (Paragraph 1: Context & Background - Explain naturally what happened. 2-3 sentences.)
     (Paragraph 2: Key Details & Numbers - Explain specific figures or quotes. 2-3 sentences.)
     (Paragraph 3: Impact & Insight - Explain why this matters to investors. 2-3 sentences.)
-    (Related Sectors: List relevant sectors/assets naturally)
+    (관련 섹터: List relevant sectors/assets naturally)
 
     ---TICKERS---
     (Space-separated tickers starting with $, e.g. $AAPL. If none, leave empty)
