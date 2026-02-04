@@ -8,6 +8,7 @@ import textwrap
 import re
 import shutil
 import json
+import random  # [추가] 랜덤 색상을 위해 필요
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageDraw, ImageFont
@@ -157,7 +158,7 @@ def fetch_article_content(url):
     except: return None
 
 # ==========================================
-# 5. 이미지 생성 (요약 카드)
+# 5. 이미지 생성 (요약 카드) - 랜덤 색상 적용
 # ==========================================
 def create_gradient_background(width, height, start_color, end_color):
     base = Image.new('RGB', (width, height), start_color)
@@ -172,9 +173,26 @@ def create_gradient_background(width, height, start_color, end_color):
 def create_info_image(text_lines, source_name, index):
     try:
         width, height = 1200, 675
-        bg_start = (10, 25, 45); bg_end = (20, 40, 70)
-        text_white = (245, 245, 250); text_gray = (180, 190, 210)
-        accent_cyan = (0, 220, 255); title_box_bg = (0, 0, 0, 80)
+        
+        # ★ [수정] 전문적인 느낌의 랜덤 테마 리스트 (배경 시작, 배경 끝, 포인트 컬러)
+        THEMES = [
+            {"start": (10, 25, 45),  "end": (20, 40, 70),   "accent": (0, 220, 255)}, # 기존 네이비 (Signature)
+            {"start": (20, 20, 20),  "end": (50, 50, 50),   "accent": (255, 215, 0)}, # 차콜 + 골드 (Premium)
+            {"start": (15, 30, 25),  "end": (30, 60, 50),   "accent": (0, 255, 150)}, # 딥 그린 + 민트 (Market Up)
+            {"start": (40, 10, 15),  "end": (70, 20, 30),   "accent": (255, 100, 100)}, # 다크 레드 (Urgent/Bearish)
+            {"start": (25, 15, 40),  "end": (50, 30, 80),   "accent": (200, 100, 255)}  # 딥 퍼플 (Tech/Future)
+        ]
+        
+        # 랜덤 테마 선택
+        theme = random.choice(THEMES)
+        bg_start = theme["start"]
+        bg_end = theme["end"]
+        accent_cyan = theme["accent"]
+        
+        text_white = (245, 245, 250)
+        text_gray = (200, 200, 210) # 가독성을 위해 조금 더 밝게 조정
+        title_box_bg = (0, 0, 0, 80)
+
         image = create_gradient_background(width, height, bg_start, bg_end)
         draw = ImageDraw.Draw(image, 'RGBA')
         try:
@@ -290,7 +308,7 @@ def summarize_news_item(target_model, news_item):
          fetched = fetch_article_content(news_item.link)
          if fetched: content_text = fetched
 
-    # ★ [핵심 수정] Output Format에서 "Related Sectors" -> "관련 섹터" 로 변경
+    # ★ [핵심 수정] 말투 개선 및 티커 처리 규칙 강화
     prompt = f"""
     [Task]
     Analyze the news and generate output.
@@ -301,14 +319,17 @@ def summarize_news_item(target_model, news_item):
 
     [CRITICAL RULE 2: TONE & STYLE]
     - Role: Insightful Financial Analyst talking to peers.
-    - Tone: Natural, expert, cynical but objective. Avoid robotic translation tone.
-    - Style: Use concise noun-endings (e.g. ~음, ~함, ~임) mixed naturally. 
-    - **Do NOT be stiff.** Write as if a human expert is summarizing quickly.
+    - Tone: **Cynical, objective, and deeply analytical.** Not robotic.
+    - Style: Use concise noun-endings (e.g. ~함, ~음, ~임).
+    - Narrative: Do NOT just list facts. Weave them into a story about *why* this matters.
     
     [CRITICAL RULE 3: FORBIDDEN]
     - **NEVER use labels** like 'Deep Analysis:', 'Context:', 'Fact:', 'Insight:'. 
     - **NEVER use bolding** inside the text (e.g. **text**).
-    - Do NOT just list facts. Connect them into a coherent narrative.
+
+    [CRITICAL RULE 4: TICKER FORMAT]
+    - US Stocks: Use $Ticker (e.g. $AAPL, $TSLA)
+    - **Korean Stocks:** Use HASHTAG with Company Name (e.g. #삼성전자, #SK하이닉스, #현대차). **NEVER use numbers like $005930.**
 
     [Input]
     Title: {news_item.title}
@@ -330,7 +351,7 @@ def summarize_news_item(target_model, news_item):
     (관련 섹터: List relevant sectors/assets naturally)
 
     ---TICKERS---
-    (Space-separated tickers starting with $, e.g. $AAPL. If none, leave empty)
+    (Space-separated tickers. Example: $AAPL $TSLA #삼성전자 #SK하이닉스)
     """
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
@@ -352,7 +373,8 @@ def summarize_news_item(target_model, news_item):
                 text_str = parts_ticker[0].strip()
                 ticker_str = parts_ticker[1].strip()
                 
-                found_tickers = [t.strip() for t in ticker_str.split() if t.startswith('$')]
+                # 티커 정제 ($ 또는 #으로 시작하는 것만)
+                found_tickers = [t.strip() for t in ticker_str.split() if t.startswith('$') or t.startswith('#')]
                 result_data["tickers"] = found_tickers
             else:
                 text_str = remaining
@@ -468,10 +490,8 @@ if __name__ == "__main__":
         image_lines = [l.replace("전기동", "구리") for l in image_lines]
         text_lines = [l.replace("전기동", "구리") for l in text_lines]
         
-        # [안전장치] AI가 혹시나 **를 포함했으면 여기서 강제로 삭제 (청소)
+        # [안전장치] ** 볼드체 및 라벨 제거
         text_lines = [l.replace("**", "").replace("##", "") for l in text_lines]
-        
-        # [안전장치] AI가 혹시나 라벨을 포함했으면 삭제
         text_lines = [re.sub(r'^(Deep Analysis \d:|Context:|Fact:|Impact:|Insight:)\s*', '', l) for l in text_lines]
 
         joined_summary = " ".join(text_lines)
@@ -486,7 +506,6 @@ if __name__ == "__main__":
                 media = api.media_upload(img_path)
                 media_ids.append(media.media_id)
                 
-                # ★ [수정] 볼드(**) 절대 안 들어가게 처리
                 tweet_text_body += f"{emojis[i]} {text_lines[0]}\n\n" 
                 for line in text_lines[1:]:
                     clean_line = line.strip()
