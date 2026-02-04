@@ -8,7 +8,7 @@ import textwrap
 import re
 import shutil
 import json
-import random  # [추가] 랜덤 색상을 위해 필요
+import random
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageDraw, ImageFont
@@ -85,6 +85,7 @@ MAX_HISTORY = 2000
 GLOBAL_TITLE_FILE = "processed_global_titles.txt"
 GLOBAL_SUMMARY_FILE = "processed_ai_summaries.txt"
 
+# [핵심] 출처 매핑 테이블 (영어 -> 한글)
 SOURCE_MAP_KR = {
     "Investing.com": "인베스팅닷컴",
     "Bloomberg": "블룸버그",
@@ -94,6 +95,8 @@ SOURCE_MAP_KR = {
     "TechCrunch": "테크크런치",
     "Google News": "구글뉴스",
     "Michael Burry": "마이클버리",
+    "Reuters": "로이터",
+    "Bank of America": "뱅크오브아메리카",
     "연합뉴스": "연합뉴스",
     "한국경제": "한국경제",
     "매일경제": "매일경제"
@@ -174,23 +177,21 @@ def create_info_image(text_lines, source_name, index):
     try:
         width, height = 1200, 675
         
-        # ★ [수정] 전문적인 느낌의 랜덤 테마 리스트 (배경 시작, 배경 끝, 포인트 컬러)
         THEMES = [
-            {"start": (10, 25, 45),  "end": (20, 40, 70),   "accent": (0, 220, 255)}, # 기존 네이비 (Signature)
-            {"start": (20, 20, 20),  "end": (50, 50, 50),   "accent": (255, 215, 0)}, # 차콜 + 골드 (Premium)
-            {"start": (15, 30, 25),  "end": (30, 60, 50),   "accent": (0, 255, 150)}, # 딥 그린 + 민트 (Market Up)
-            {"start": (40, 10, 15),  "end": (70, 20, 30),   "accent": (255, 100, 100)}, # 다크 레드 (Urgent/Bearish)
-            {"start": (25, 15, 40),  "end": (50, 30, 80),   "accent": (200, 100, 255)}  # 딥 퍼플 (Tech/Future)
+            {"start": (10, 25, 45),  "end": (20, 40, 70),   "accent": (0, 220, 255)}, # 네이비
+            {"start": (20, 20, 20),  "end": (50, 50, 50),   "accent": (255, 215, 0)}, # 차콜+골드
+            {"start": (15, 30, 25),  "end": (30, 60, 50),   "accent": (0, 255, 150)}, # 딥그린
+            {"start": (40, 10, 15),  "end": (70, 20, 30),   "accent": (255, 100, 100)}, # 버건디
+            {"start": (25, 15, 40),  "end": (50, 30, 80),   "accent": (200, 100, 255)}  # 퍼플
         ]
         
-        # 랜덤 테마 선택
         theme = random.choice(THEMES)
         bg_start = theme["start"]
         bg_end = theme["end"]
         accent_cyan = theme["accent"]
         
         text_white = (245, 245, 250)
-        text_gray = (200, 200, 210) # 가독성을 위해 조금 더 밝게 조정
+        text_gray = (200, 200, 210)
         title_box_bg = (0, 0, 0, 80)
 
         image = create_gradient_background(width, height, bg_start, bg_end)
@@ -308,7 +309,6 @@ def summarize_news_item(target_model, news_item):
          fetched = fetch_article_content(news_item.link)
          if fetched: content_text = fetched
 
-    # ★ [핵심 수정] 말투 개선 및 티커 처리 규칙 강화
     prompt = f"""
     [Task]
     Analyze the news and generate output.
@@ -373,7 +373,6 @@ def summarize_news_item(target_model, news_item):
                 text_str = parts_ticker[0].strip()
                 ticker_str = parts_ticker[1].strip()
                 
-                # 티커 정제 ($ 또는 #으로 시작하는 것만)
                 found_tickers = [t.strip() for t in ticker_str.split() if t.startswith('$') or t.startswith('#')]
                 result_data["tickers"] = found_tickers
             else:
@@ -490,9 +489,25 @@ if __name__ == "__main__":
         image_lines = [l.replace("전기동", "구리") for l in image_lines]
         text_lines = [l.replace("전기동", "구리") for l in text_lines]
         
-        # [안전장치] ** 볼드체 및 라벨 제거
+        # [안전장치 1] 볼드 및 라벨 제거
         text_lines = [l.replace("**", "").replace("##", "") for l in text_lines]
         text_lines = [re.sub(r'^(Deep Analysis \d:|Context:|Fact:|Impact:|Insight:)\s*', '', l) for l in text_lines]
+
+        # ★ [안전장치 2] 출처명 및 링크 강제 한글화 (Filtering Logic)
+        cleaned_text_lines = []
+        for line in text_lines:
+            temp_line = line
+            for eng_src, kor_src in SOURCE_MAP_KR.items():
+                # 대소문자 무시 치환을 위해 re.sub 사용 권장되나 간단하게 replace 사용
+                # 1. 단순 단어 치환 (Investing.com -> 인베스팅닷컴)
+                temp_line = temp_line.replace(eng_src, kor_src)
+                # 2. URL 형태 치환 (http://Investing.com -> 인베스팅닷컴)
+                temp_line = temp_line.replace(f"http://{eng_src}", kor_src)
+                temp_line = temp_line.replace(f"https://{eng_src}", kor_src)
+                temp_line = temp_line.replace(f"http://www.{eng_src}", kor_src)
+                temp_line = temp_line.replace(f"https://www.{eng_src}", kor_src)
+            cleaned_text_lines.append(temp_line)
+        text_lines = cleaned_text_lines
 
         joined_summary = " ".join(text_lines)
         if is_duplicate(joined_summary, global_summaries):
