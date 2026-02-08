@@ -1,4 +1,4 @@
-name: Run Stock News Bot
+name: StockHub Twitter Bot
 
 on:
   schedule:
@@ -22,9 +22,8 @@ on:
     # (UTC 기준: 당일 02:15 / 토,일 실행)
     - cron: '15 2 * * 6,0'
 
-  workflow_dispatch: # 수동 실행 버튼 유지
+  workflow_dispatch: # 수동 실행 버튼
 
-# ★ [핵심] 봇이 txt 파일을 업데이트하고 저장할 수 있는 권한
 permissions:
   contents: write
 
@@ -44,27 +43,20 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # beautifulsoup4 포함 필수 라이브러리 설치
-        pip install tweepy feedparser requests Pillow beautifulsoup4
+        pip install tweepy feedparser requests Pillow
 
-    - name: Run bot
+    - name: Run StockHub Bot
       env:
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         CONSUMER_KEY: ${{ secrets.CONSUMER_KEY }}
         CONSUMER_SECRET: ${{ secrets.CONSUMER_SECRET }}
         ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
         ACCESS_TOKEN_SECRET: ${{ secrets.ACCESS_TOKEN_SECRET }}
       run: |
-        python -u bot.py
+        python -u bot_stockhub.py
 
-    # ★ [핵심] 변경된 기록 파일(*.txt)을 저장소에 영구 저장
     - name: Commit and Push changes
       run: |
         git config --global user.name "GitHub Action Bot"
         git config --global user.email "action@github.com"
-        
-        # 1. 변경된 모든 txt 파일 담기
-        git add *.txt
-        
-        # 2. 변경사항이 있으면 커밋하고 푸시 (없으면 패스하여 에러 방지)
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Update news history logs" && git push)
+        git add posted_stockhub_links.txt
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Update posted links" && git push)
